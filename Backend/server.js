@@ -36,8 +36,12 @@ mongoose.connect(process.env.MONGO_URI, {
   useNewUrlParser: true,
   useUnifiedTopology: true,
 })
-  .then(() => console.log('MongoDB connected'))
-  .catch(err => console.error('MongoDB connection error:', err));
+  .then((conn) => {
+    console.log('✅ MongoDB connected');
+    console.log('🔎 Connected to DB:', conn.connection.name);  // <--- database name
+  })
+  .catch(err => console.error('❌ MongoDB connection error:', err));
+
 
 // Register user
 app.post('/api/register', async (req, res) => {
