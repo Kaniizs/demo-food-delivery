@@ -12,7 +12,7 @@ export default function FoodList() {
   const priceRanges = ['All', 'Under $5', '$5 - $7.5', '$7.5 - $10', 'Above $10'];
 
   useEffect(() => {
-    fetch`${API_URL}/api/menu`)
+    fetch(`${API_URL}/api/menu`)
       .then(res => res.json())
       .then(data => {
         setMeals(data);
