@@ -12,7 +12,7 @@ export default function FoodDetails() {
   const [savedAmount, setSavedAmount] = useState(1);
 
   useEffect(() => {
-    fetch('http://localhost:5000/api/menu')
+    fetch(`${API_URL}/api/menu`)
       .then(res => res.json())
       .then(data => {
         const selectedMeal = data.find(m => m._id === id || m.id === id);
