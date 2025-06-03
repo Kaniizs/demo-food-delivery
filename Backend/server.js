@@ -36,11 +36,26 @@ mongoose.connect(process.env.MONGO_URI, {
   useNewUrlParser: true,
   useUnifiedTopology: true,
 })
-  .then((conn) => {
+  .then(async () => {
     console.log('✅ MongoDB connected');
-    console.log('🔎 Connected to DB:', conn.connection.name);  // <--- database name
+
+    // Auto-create admin if not exists
+    const existingAdmin = await User.findOne({ username: 'admin' });
+    if (!existingAdmin) {
+      const hashedPassword = await bcrypt.hash('admin123', 10); // default password
+      const admin = new User({
+        username: 'admin',
+        password: hashedPassword,
+        role: 'admin',
+      });
+      await admin.save();
+      console.log('👑 Default admin user created: admin / admin123');
+    } else {
+      console.log('👑 Admin already exists');
+    }
   })
   .catch(err => console.error('❌ MongoDB connection error:', err));
+
 
 
 // Register user
@@ -131,7 +146,7 @@ app.post('/api/food', authenticateToken, isAdmin, upload.single('image'), async 
   const { name, category, instructions, price } = req.body;
   const imagePath = req.file ? `/uploads/${req.file.filename}` : null;
 
-  if (!name || !imagePath || !category  || !instructions || !price) {
+  if (!name || !imagePath || !category || !instructions || !price) {
     return res.status(400).json({ error: 'All fields are required' });
   }
 
