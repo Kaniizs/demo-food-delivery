@@ -39,22 +39,21 @@ mongoose.connect(process.env.MONGO_URI, {
   .then(async () => {
     console.log('✅ MongoDB connected');
 
-    // Auto-create admin if not exists
-    const existingAdmin = await User.findOne({ username: 'admin' });
-    if (!existingAdmin) {
-      const hashedPassword = await bcrypt.hash('admin123', 10); // default password
-      const admin = new User({
-        username: 'admin',
-        password: hashedPassword,
-        role: 'admin',
-      });
-      await admin.save();
-      console.log('👑 Default admin user created: admin / admin123');
-    } else {
-      console.log('👑 Admin already exists');
-    }
+    // Remove existing admin user
+    await User.deleteOne({ username: 'admin' });
+
+    // Create a new admin user
+    const hashedPassword = await bcrypt.hash('admin123', 10); // default password
+    const admin = new User({
+      username: 'admin',
+      password: hashedPassword,
+      role: 'admin',
+    });
+    await admin.save();
+    console.log('👑 Default admin user recreated: admin / admin123');
   })
   .catch(err => console.error('❌ MongoDB connection error:', err));
+
 
 
 
