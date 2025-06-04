@@ -109,15 +109,6 @@ export default function FoodList() {
                 </Link>
                 <p className="text-sm text-gray-600 mb-2">{meal.description}</p>
 
-                {/* Placeholder icons */}
-                <div className="flex gap-2 text-gray-400 text-lg">
-                  <span>🌶️</span>
-                  <span>🍔</span>
-                  <span>🥗</span>
-                  <span>🍰</span>
-                  <span>🍣</span>
-                  <span>🥤</span>
-                </div>
               </div>
             </div>
           ))
