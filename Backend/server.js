@@ -29,6 +29,7 @@ const storage = multer.diskStorage({
 });
 
 const upload = multer({ storage });
+const bodyParser = require('body-parser');
 
 const mongoose = require('mongoose');
 
@@ -120,7 +121,7 @@ app.get('/api/protected', authenticateToken, (req, res) => {
 
 app.get('/api/users', authenticateToken, isAdmin, async (req, res) => {
   try {
-    const users = await User.find({}, '-password'); // exclude passwords
+    const users = await User.find({}, '-password');
     res.json(users);
   } catch (err) {
     console.error('Error fetching users:', err);
@@ -164,6 +165,30 @@ app.post('/api/food', authenticateToken, isAdmin, upload.single('image'), async 
     res.status(500).json({ error: 'Failed to add food item' });
   }
 });
+
+app.put('/api/food/:id', upload.single('image'), async (req, res) => {
+  try {
+    console.log('PUT /api/food/:id', req.body, req.file);
+    const update = {
+      name: req.body.name,
+      category: req.body.category,
+      instructions: req.body.instructions,
+      price: req.body.price,
+    };
+    if (req.file) {
+      update.image = `/uploads/${req.file.filename}`;
+    }
+
+    const updated = await Food.findByIdAndUpdate(req.params.id, update, { new: true });
+    if (!updated) return res.status(404).json({ message: 'Food not found' });
+
+    return res.json(updated);
+  } catch (err) {
+    console.error('Error in PUT:', err);
+    return res.status(500).json({ message: 'Server error', error: err.message });
+  }
+});
+
 
 app.delete('/api/food/:id', authenticateToken, isAdmin, async (req, res) => {
   const foodId = req.params.id;
@@ -220,6 +245,40 @@ app.get('/api/orders', async (req, res) => {
     res.status(500).json({ error: 'Failed to fetch orders' });
   }
 });
+
+// POST: Update an order status
+app.put('/api/order/:id/', authenticateToken, isAdmin, async (req, res) => {
+  const orderId = req.params.id;
+  const { status } = req.body;
+
+  try {
+    const updatedOrder = await Order.findByIdAndUpdate(orderId, { status }, { new: true });
+    if (!updatedOrder) {
+      return res.status(404).json({ error: 'Order not found' });
+    }
+    res.json({ message: 'Order status updated', order: updatedOrder });
+  } catch (err) {
+    res.status(500).json({ error: 'Failed to update order status' });
+  }
+});
+
+// GET: Get an order by ID
+app.get('/api/order/:id', async (req, res) => {
+  const orderId = req.params.id;
+
+  try {
+    const order = await Order.findById(orderId);
+    if (!order) {
+      return res.status(404).json({ error: 'Order not found' });
+    }
+    res.json(order);
+  } catch (err) {
+    res.status(500).json({ error: 'Failed to fetch order' });
+  }
+});
+
+
+
 
 // Start server
 app.listen(PORT, () => {
