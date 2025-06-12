@@ -142,16 +142,16 @@ app.get('/api/menu', async (req, res) => {
   }
 });
 
-// Protect this route - only admin can update food
+// POST /api/food - Add new food item (admin only)
 app.post('/api/food', authenticateToken, isAdmin, upload.single('image'), async (req, res) => {
-  const { name, category, instructions, price } = req.body;
-  const imagePath = req.file ? `/uploads/${req.file.filename}` : null;
-
-  if (!name || !imagePath || !category || !instructions || !price) {
-    return res.status(400).json({ error: 'All fields are required' });
-  }
-
   try {
+    const { name, category, instructions, price } = req.body;
+    const imagePath = req.file ? `/uploads/${req.file.filename}` : null;
+
+    if (!name || !imagePath || !category || !instructions || !price) {
+      return res.status(400).json({ error: 'All fields are required' });
+    }
+
     const newFood = new Food({
       name,
       image: imagePath,
@@ -159,57 +159,78 @@ app.post('/api/food', authenticateToken, isAdmin, upload.single('image'), async 
       instructions,
       price
     });
+
     await newFood.save();
     res.status(201).json({ message: 'Food item added', food: newFood });
   } catch (err) {
-    console.error(err);
+    console.error('Error adding food item:', err);
     res.status(500).json({ error: 'Failed to add food item' });
   }
 });
 
-// Protect PUT route and require admin role
+// PUT /api/food/:id - Update existing food item (admin only)
 app.put('/api/food/:id', authenticateToken, isAdmin, upload.single('image'), async (req, res) => {
-  console.log('PUT /api/food/:id body:', req.body, 'file:', req.file);
-  const update = {
-    name: req.body.name,
-    category: req.body.category,
-    instructions: req.body.instructions,
-    price: req.body.price,
-  };
-  if (req.file) {
-    update.image = `/uploads/${req.file.filename}`;
+  try {
+    const { name, category, instructions, price } = req.body;
+    const updateData = { name, category, instructions, price };
+
+    // Remove undefined fields to avoid overwriting with undefined
+    Object.keys(updateData).forEach(
+      key => updateData[key] === undefined && delete updateData[key]
+    );
+
+    if (req.file) {
+      updateData.image = `/uploads/${req.file.filename}`;
+    }
+
+    const updatedFood = await Food.findByIdAndUpdate(req.params.id, updateData, { new: true });
+
+    if (!updatedFood) {
+      return res.status(404).json({ message: 'Food not found' });
+    }
+
+    res.json(updatedFood);
+  } catch (err) {
+    console.error('Error updating food item:', err);
+    res.status(500).json({ error: 'Failed to update food item' });
   }
-  const updated = await Food.findByIdAndUpdate(req.params.id, update, { new: true });
-  if (!updated) return res.status(404).json({ message: 'Food not found' });
-  return res.json(updated);
 });
 
-// Protect delete route and require admin role
+
 app.delete('/api/food/:id', authenticateToken, isAdmin, async (req, res) => {
-  const foodId = req.params.id;
   try {
+    const foodId = req.params.id;
     const food = await Food.findById(foodId);
+
     if (!food) {
       return res.status(404).json({ error: 'Food item not found' });
     }
 
-    // Delete image file if it exists
     if (food.image) {
-      const imagePath = path.join(__dirname, food.image);
+      // Ensure no leading slash for proper path resolution
+      const relativeImagePath = food.image.startsWith('/')
+        ? food.image.substring(1)
+        : food.image;
+
+      const imagePath = path.resolve(__dirname, relativeImagePath);
+      console.log(`Attempting to delete image file at: ${imagePath}`);
+
       if (fs.existsSync(imagePath)) {
         fs.unlinkSync(imagePath);
+        console.log('Image file deleted successfully');
+      } else {
+        console.warn('Image file does not exist:', imagePath);
       }
     }
 
-    // Delete the food document from DB
     await Food.findByIdAndDelete(foodId);
-
     res.json({ message: 'Food item and image deleted successfully' });
   } catch (err) {
     console.error('Delete food error:', err);
     res.status(500).json({ error: 'Failed to delete food item' });
   }
 });
+
 
 app.use('/uploads', express.static('uploads'));
 
