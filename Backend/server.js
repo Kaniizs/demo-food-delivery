@@ -142,6 +142,7 @@ app.get('/api/menu', async (req, res) => {
   }
 });
 
+// Protect this route - only admin can update food
 app.post('/api/food', authenticateToken, isAdmin, upload.single('image'), async (req, res) => {
   const { name, category, instructions, price } = req.body;
   const imagePath = req.file ? `/uploads/${req.file.filename}` : null;
@@ -166,30 +167,24 @@ app.post('/api/food', authenticateToken, isAdmin, upload.single('image'), async 
   }
 });
 
-app.put('/api/food/:id', upload.single('image'), async (req, res) => {
-  try {
-    console.log('PUT /api/food/:id', req.body, req.file);
-    const update = {
-      name: req.body.name,
-      category: req.body.category,
-      instructions: req.body.instructions,
-      price: req.body.price,
-    };
-    if (req.file) {
-      update.image = `/uploads/${req.file.filename}`;
-    }
-
-    const updated = await Food.findByIdAndUpdate(req.params.id, update, { new: true });
-    if (!updated) return res.status(404).json({ message: 'Food not found' });
-
-    return res.json(updated);
-  } catch (err) {
-    console.error('Error in PUT:', err);
-    return res.status(500).json({ message: 'Server error', error: err.message });
+// Protect PUT route and require admin role
+app.put('/api/food/:id', authenticateToken, isAdmin, upload.single('image'), async (req, res) => {
+  console.log('PUT /api/food/:id body:', req.body, 'file:', req.file);
+  const update = {
+    name: req.body.name,
+    category: req.body.category,
+    instructions: req.body.instructions,
+    price: req.body.price,
+  };
+  if (req.file) {
+    update.image = `/uploads/${req.file.filename}`;
   }
+  const updated = await Food.findByIdAndUpdate(req.params.id, update, { new: true });
+  if (!updated) return res.status(404).json({ message: 'Food not found' });
+  return res.json(updated);
 });
 
-
+// Protect delete route and require admin role
 app.delete('/api/food/:id', authenticateToken, isAdmin, async (req, res) => {
   const foodId = req.params.id;
   try {
