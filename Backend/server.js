@@ -1,99 +1,99 @@
-const Order = require('./models/Order');
 const express = require('express');
 const cors = require('cors');
 const bcrypt = require('bcrypt');
 const jwt = require('jsonwebtoken');
+const multer = require('multer');
+const fs = require('fs');
+const path = require('path');
+const mongoose = require('mongoose');
 require('dotenv').config();
+
+const User = require('./models/Users');
+const Food = require('./models/Food');
+const Order = require('./models/Order');
 
 const app = express();
 const PORT = 5000;
 const JWT_SECRET = process.env.JWT_SECRET;
 
+if (!JWT_SECRET || !process.env.MONGO_URI) {
+  console.error("❌ Missing JWT_SECRET or MONGO_URI in .env file");
+  process.exit(1);
+}
+
 app.use(cors());
 app.use(express.json());
 
-const User = require('./models/Users');
-const Food = require('./models/Food');
+// Ensure uploads folder exists
+if (!fs.existsSync('uploads')) {
+  fs.mkdirSync('uploads');
+}
 
-const multer = require('multer');
-const fs = require('fs');
-const path = require('path');
 const storage = multer.diskStorage({
-  destination: (req, file, cb) => {
-    cb(null, 'uploads/');
-  },
-  filename: (req, file, cb) => {
-    const ext = path.extname(file.originalname);
-    cb(null, Date.now() + ext);
-  }
+  destination: (req, file, cb) => cb(null, 'uploads/'),
+  filename: (req, file, cb) => cb(null, Date.now() + path.extname(file.originalname))
 });
-
 const upload = multer({ storage });
-
-const mongoose = require('mongoose');
 
 mongoose.connect(process.env.MONGO_URI, {
   useNewUrlParser: true,
   useUnifiedTopology: true,
-})
-  .then(async () => {
-    console.log('✅ MongoDB connected');
+}).then(async () => {
+  console.log('✅ MongoDB connected');
 
-    // Remove existing admin user
-    await User.deleteOne({ username: 'admin' });
+  await User.deleteOne({ username: 'admin' });
 
-    // Create a new admin user
-    const hashedPassword = await bcrypt.hash('admin123', 10); // default password
-    const admin = new User({
-      username: 'admin',
-      password: hashedPassword,
-      role: 'admin',
-    });
-    await admin.save();
-    console.log('👑 Default admin user recreated: admin / admin123');
-  })
-  .catch(err => console.error('❌ MongoDB connection error:', err));
+  const hashedPassword = await bcrypt.hash('admin123', 10);
+  const admin = new User({
+    username: 'admin',
+    password: hashedPassword,
+    role: 'admin',
+  });
+  await admin.save();
+  console.log('👑 Default admin user recreated: admin / admin123');
+}).catch(err => console.error('❌ MongoDB connection error:', err));
 
-
-
-
-// Register user
+// --- AUTH ---
 app.post('/api/register', async (req, res) => {
-  const { username, password, role = 'user' } = req.body;
+  try {
+    const { username, password, role = 'user' } = req.body;
+    if (!username || !password) return res.status(400).json({ error: 'Missing username or password' });
 
-  if (!username || !password) return res.status(400).json({ error: 'Missing username or password' });
+    const existingUser = await User.findOne({ username });
+    if (existingUser) return res.status(400).json({ error: 'Username already exists' });
 
-  const existingUser = await User.findOne({ username });
-  if (existingUser) return res.status(400).json({ error: 'Username already exists' });
+    const hashedPassword = await bcrypt.hash(password, 10);
+    const newUser = new User({ username, password: hashedPassword, role });
+    await newUser.save();
 
-  const hashedPassword = await bcrypt.hash(password, 10);
-
-  const newUser = new User({ username, password: hashedPassword, role });
-  await newUser.save();
-
-  res.status(201).json({ message: 'User registered' });
+    res.status(201).json({ message: 'User registered' });
+  } catch (err) {
+    console.error('Register error:', err);
+    res.status(500).json({ error: 'Registration failed' });
+  }
 });
 
-// Login user
 app.post('/api/login', async (req, res) => {
-  const { username, password } = req.body;
+  try {
+    const { username, password } = req.body;
 
-  const user = await User.findOne({ username });
-  if (!user) return res.status(401).json({ error: 'Invalid credentials' });
+    const user = await User.findOne({ username });
+    if (!user) return res.status(401).json({ error: 'Invalid credentials' });
 
-  const isMatch = await bcrypt.compare(password, user.password);
-  if (!isMatch) return res.status(401).json({ error: 'Invalid credentials' });
+    const isMatch = await bcrypt.compare(password, user.password);
+    if (!isMatch) return res.status(401).json({ error: 'Invalid credentials' });
 
-  // Create JWT token
-  const token = jwt.sign({ username, role: user.role }, JWT_SECRET, { expiresIn: '1h' });
-
-  res.json({ token, role: user.role || 'user' });
+    const token = jwt.sign({ username, role: user.role }, JWT_SECRET, { expiresIn: '1h' });
+    res.json({ token, role: user.role || 'user' });
+  } catch (err) {
+    console.error('Login error:', err);
+    res.status(500).json({ error: 'Login failed' });
+  }
 });
 
-// Middleware to verify token for protected routes
+// --- Middleware ---
 function authenticateToken(req, res, next) {
-  const authHeader = req.headers['authorization'];
-  const token = authHeader && authHeader.split(' ')[1];
+  const token = req.headers['authorization']?.split(' ')[1];
   if (!token) return res.status(401).json({ error: 'Token missing' });
 
   jwt.verify(token, JWT_SECRET, (err, user) => {
@@ -104,12 +104,11 @@ function authenticateToken(req, res, next) {
 }
 
 function isAdmin(req, res, next) {
-  if (req.user.role !== 'admin') {
-    return res.status(403).json({ error: 'Access denied: Admins only' });
-  }
+  if (req.user.role !== 'admin') return res.status(403).json({ error: 'Access denied: Admins only' });
   next();
 }
 
+// --- Protected Routes ---
 app.get('/api/admin-stats', authenticateToken, isAdmin, (req, res) => {
   res.json({ message: 'Hello Admin, here are your stats.' });
 });
@@ -128,84 +127,66 @@ app.get('/api/users', authenticateToken, isAdmin, async (req, res) => {
   }
 });
 
-
-let orders = [];
-
+// --- Menu Routes ---
 app.get('/api/menu', async (req, res) => {
   try {
     const foodItems = await Food.find();
     res.json(foodItems);
-  } catch (error) {
-    console.error('Error fetching food items:', error.message);
+  } catch (err) {
+    console.error('Error fetching food items:', err);
     res.status(500).json({ error: 'Failed to fetch food items' });
   }
 });
 
 app.post('/api/food', authenticateToken, isAdmin, upload.single('image'), async (req, res) => {
-  const { name, category, instructions, price } = req.body;
-  const imagePath = req.file ? `/uploads/${req.file.filename}` : null;
-
-  if (!name || !imagePath || !category || !instructions || !price) {
-    return res.status(400).json({ error: 'All fields are required' });
-  }
-
   try {
-    const newFood = new Food({
-      name,
-      image: imagePath,
-      category,
-      instructions,
-      price
-    });
+    const { name, category, instructions, price } = req.body;
+    const imagePath = req.file ? `/uploads/${req.file.filename}` : null;
+
+    if (!name || !imagePath || !category || !instructions || !price) {
+      return res.status(400).json({ error: 'All fields are required' });
+    }
+
+    const newFood = new Food({ name, image: imagePath, category, instructions, price });
     await newFood.save();
     res.status(201).json({ message: 'Food item added', food: newFood });
   } catch (err) {
-    console.error(err);
+    console.error('Add food error:', err);
     res.status(500).json({ error: 'Failed to add food item' });
   }
 });
 
 app.put('/api/food/:id', authenticateToken, isAdmin, upload.single('image'), async (req, res) => {
-  const foodId = req.params.id;
-  const { name, category, instructions, price } = req.body;
-  const imagePath = req.file ? `/uploads/${req.file.filename}` : null;
-
   try {
+    const foodId = req.params.id;
+    const { name, category, instructions, price } = req.body;
+    const imagePath = req.file ? `/uploads/${req.file.filename}` : null;
+
     const updatedFood = await Food.findByIdAndUpdate(
       foodId,
       { name, image: imagePath, category, instructions, price },
       { new: true }
     );
-    if (!updatedFood) {
-      return res.status(404).json({ error: 'Food item not found' });
-    }
+    if (!updatedFood) return res.status(404).json({ error: 'Food item not found' });
+
     res.json({ message: 'Food item updated', food: updatedFood });
   } catch (err) {
-    console.error(err);
+    console.error('Update food error:', err);
     res.status(500).json({ error: 'Failed to update food item' });
   }
 });
 
-
 app.delete('/api/food/:id', authenticateToken, isAdmin, async (req, res) => {
-  const foodId = req.params.id;
   try {
-    const food = await Food.findById(foodId);
-    if (!food) {
-      return res.status(404).json({ error: 'Food item not found' });
-    }
+    const food = await Food.findById(req.params.id);
+    if (!food) return res.status(404).json({ error: 'Food item not found' });
 
-    // Delete image file if it exists
     if (food.image) {
-      const imagePath = path.join(__dirname, food.image);
-      if (fs.existsSync(imagePath)) {
-        fs.unlinkSync(imagePath);
-      }
+      const imagePath = path.join(__dirname, 'uploads', path.basename(food.image));
+      if (fs.existsSync(imagePath)) fs.unlinkSync(imagePath);
     }
 
-    // Delete the food document from DB
-    await Food.findByIdAndDelete(foodId);
-
+    await Food.findByIdAndDelete(req.params.id);
     res.json({ message: 'Food item and image deleted successfully' });
   } catch (err) {
     console.error('Delete food error:', err);
@@ -215,21 +196,19 @@ app.delete('/api/food/:id', authenticateToken, isAdmin, async (req, res) => {
 
 app.use('/uploads', express.static('uploads'));
 
-
-// POST: Place an order
+// --- Order Routes ---
 app.post('/api/order', authenticateToken, async (req, res) => {
-  const { items, customerName } = req.body;
-
-  if (!items || items.length === 0 || !customerName) {
-    return res.status(400).json({ error: 'Invalid order data' });
-  }
-
   try {
+    const { items, customerName } = req.body;
+    if (!items || items.length === 0 || !customerName) {
+      return res.status(400).json({ error: 'Invalid order data' });
+    }
+
     const newOrder = new Order({ customerName, items });
     await newOrder.save();
-    orders.push(newOrder);
     res.status(201).json({ message: 'Order placed!', order: newOrder });
   } catch (err) {
+    console.error('Create order error:', err);
     res.status(500).json({ error: 'Failed to save order' });
   }
 });
@@ -239,45 +218,44 @@ app.get('/api/orders', async (req, res) => {
     const orders = await Order.find().sort({ time: -1 });
     res.json(orders);
   } catch (err) {
+    console.error('Get orders error:', err);
     res.status(500).json({ error: 'Failed to fetch orders' });
   }
 });
 
-// POST: Update an order status
-app.put('/api/order/:id/', authenticateToken, isAdmin, async (req, res) => {
-  const orderId = req.params.id;
-  const { status } = req.body;
-
+app.put('/api/order/:id', authenticateToken, isAdmin, async (req, res) => {
   try {
-    const updatedOrder = await Order.findByIdAndUpdate(orderId, { status }, { new: true });
-    if (!updatedOrder) {
-      return res.status(404).json({ error: 'Order not found' });
-    }
+    const updatedOrder = await Order.findByIdAndUpdate(
+      req.params.id,
+      { status: req.body.status },
+      { new: true }
+    );
+    if (!updatedOrder) return res.status(404).json({ error: 'Order not found' });
     res.json({ message: 'Order status updated', order: updatedOrder });
   } catch (err) {
+    console.error('Update order status error:', err);
     res.status(500).json({ error: 'Failed to update order status' });
   }
 });
 
-// GET: Get an order by ID
 app.get('/api/order/:id', async (req, res) => {
-  const orderId = req.params.id;
-
   try {
-    const order = await Order.findById(orderId);
-    if (!order) {
-      return res.status(404).json({ error: 'Order not found' });
-    }
+    const order = await Order.findById(req.params.id);
+    if (!order) return res.status(404).json({ error: 'Order not found' });
     res.json(order);
   } catch (err) {
+    console.error('Get order by ID error:', err);
     res.status(500).json({ error: 'Failed to fetch order' });
   }
 });
 
+// --- Global Error Handler ---
+app.use((err, req, res, next) => {
+  console.error('Unhandled error:', err);
+  res.status(500).json({ error: 'Internal server error' });
+});
 
-
-
-// Start server
+// --- Start Server ---
 app.listen(PORT, () => {
-  console.log(`Server running at http://localhost:${PORT}`);
+  console.log(`🚀 Server running at http://localhost:${PORT}`);
 });
