@@ -53,7 +53,7 @@ mongoose.connect(process.env.MONGO_URI, {
   console.log('👑 Default admin user recreated: admin / admin123');
 }).catch(err => console.error('❌ MongoDB connection error:', err));
 
-// --- AUTH ---
+
 app.post('/api/register', async (req, res) => {
   try {
     const { username, password, role = 'user' } = req.body;
@@ -156,25 +156,59 @@ app.post('/api/food', authenticateToken, isAdmin, upload.single('image'), async 
   }
 });
 
+app.get('/api/food/:id', async (req, res) => {
+  try {
+    const foodId = req.params.id;
+    const food = await Food.findById(foodId);
+    if (!food) {
+      return res.status(404).json({ error: 'Food item not found' });
+    }
+    res.json(food);
+  } catch (err) {
+    console.error('Get food by ID error:', err);
+    res.status(500).json({ error: 'Failed to fetch food item' });
+  }
+});
+
+
+
 app.put('/api/food/:id', authenticateToken, isAdmin, upload.single('image'), async (req, res) => {
   try {
     const foodId = req.params.id;
     const { name, category, instructions, price } = req.body;
-    const imagePath = req.file ? `/uploads/${req.file.filename}` : null;
 
-    const updatedFood = await Food.findByIdAndUpdate(
-      foodId,
-      { name, image: imagePath, category, instructions, price },
-      { new: true }
-    );
-    if (!updatedFood) return res.status(404).json({ error: 'Food item not found' });
+    // Find existing food
+    const existingFood = await Food.findById(foodId);
+    if (!existingFood) return res.status(404).json({ error: 'Food item not found' });
 
+    // If a new image is uploaded, delete the old one
+    let imagePath = existingFood.image;
+    if (req.file) {
+      // Delete old image file
+      if (imagePath) {
+        const oldImagePath = path.join(__dirname, 'uploads', path.basename(imagePath));
+        if (fs.existsSync(oldImagePath)) fs.unlinkSync(oldImagePath);
+      }
+      // Set new image path
+      imagePath = `/uploads/${req.file.filename}`;
+    }
+
+    // Update fields
+    existingFood.name = name;
+    existingFood.category = category;
+    existingFood.instructions = instructions;
+    existingFood.price = price;
+    existingFood.image = imagePath;
+
+    const updatedFood = await existingFood.save();
     res.json({ message: 'Food item updated', food: updatedFood });
+
   } catch (err) {
     console.error('Update food error:', err);
     res.status(500).json({ error: 'Failed to update food item' });
   }
 });
+
 
 app.delete('/api/food/:id', authenticateToken, isAdmin, async (req, res) => {
   try {
