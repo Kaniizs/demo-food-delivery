@@ -292,15 +292,35 @@ app.get('/api/orders/table/:tableName', async (req, res) => {
 app.put('/api/orders/table/:tableName', async (req, res) => {
   try {
     const tableName = req.params.tableName;
-    const { status } = req.body;
-    const updatedOrder = await Order.findOneAndUpdate({ tableName }, { status }, { new: true });
-    res.json(updatedOrder);
+    const { status, items } = req.body; 
+
+    if (!tableName) {
+      return res.status(400).json({ error: 'Table name is required' });
+    }
+
+    const latestOrder = await Order.findOne({ tableName }).sort({ time: -1 });
+
+    if (!latestOrder) {
+      return res.status(404).json({ error: 'No active order found for this table' });
+    }
+
+
+    const updatedOrder = await Order.findByIdAndUpdate(
+      latestOrder._id,
+      { $set: { items: items, status: status || latestOrder.status } }, // Use provided status or keep existing
+      { new: true } // Return the updated document
+    );
+
+    if (!updatedOrder) {
+      return res.status(404).json({ error: 'Order not found after update attempt' });
+    }
+
+    res.json(updatedOrder); // Send back the updated order
   } catch (err) {
-    console.error('Update order status error:', err);
-    res.status(500).json({ error: 'Failed to update order status' });
+    console.error('Update order error:', err);
+    res.status(500).json({ error: 'Failed to update order' });
   }
 });
-
 
 
 // --- Global Error Handler ---
