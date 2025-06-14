@@ -58,7 +58,7 @@ mongoose.connect(process.env.MONGO_URI, {
 
   const foodItems = await Food.find();
   const existingImages = new Set(foodItems.map(item => item.image));
-  
+
   const uploadDir = path.join(__dirname, 'uploads');
   if (fs.existsSync(uploadDir)) {
     fs.readdirSync(uploadDir).forEach(file => {
@@ -269,18 +269,20 @@ app.delete('/api/food/:id', authenticateToken, isAdmin, async (req, res) => {
   }
 });
 
-app.use('/uploads', express.static('uploads'));
+app.use('/uploads', express.static(path.join(__dirname, 'uploads')));
 
 // --- Order Routes ---
-app.post('/api/order', authenticateToken, async (req, res) => {
+app.post('/api/order', async (req, res) => {
   try {
-    const { items, customerName } = req.body;
-    if (!items || items.length === 0 || !customerName) {
+    const { items, tableName } = req.body;
+
+    if (!items || items.length === 0 || !tableName) {
       return res.status(400).json({ error: 'Invalid order data' });
     }
 
-    const newOrder = new Order({ customerName, items });
+    const newOrder = new Order({ tableName, items });
     await newOrder.save();
+
     res.status(201).json({ message: 'Order placed!', order: newOrder });
   } catch (err) {
     console.error('Create order error:', err);
