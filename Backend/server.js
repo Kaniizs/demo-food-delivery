@@ -292,10 +292,14 @@ app.get('/api/orders/table/:tableName', async (req, res) => {
 app.put('/api/orders/table/:tableName', async (req, res) => {
   try {
     const tableName = req.params.tableName;
-    const { status, items } = req.body; 
+    const { status, items } = req.body;
 
     if (!tableName) {
       return res.status(400).json({ error: 'Table name is required' });
+    }
+
+    if (!items || !Array.isArray(items) || items.length === 0) {
+      return res.status(400).json({ error: 'Invalid items list' });
     }
 
     const latestOrder = await Order.findOne({ tableName }).sort({ time: -1 });
@@ -304,23 +308,31 @@ app.put('/api/orders/table/:tableName', async (req, res) => {
       return res.status(404).json({ error: 'No active order found for this table' });
     }
 
+    // Merge existing items with new ones
+    const mergedItems = [...latestOrder.items];
 
-    const updatedOrder = await Order.findByIdAndUpdate(
-      latestOrder._id,
-      { $set: { items: items, status: status || latestOrder.status } }, // Use provided status or keep existing
-      { new: true } // Return the updated document
-    );
-
-    if (!updatedOrder) {
-      return res.status(404).json({ error: 'Order not found after update attempt' });
+    for (const newItem of items) {
+      const existingItem = mergedItems.find(item => item._id.toString() === newItem._id);
+      if (existingItem) {
+        existingItem.quantity += newItem.quantity;
+      } else {
+        mergedItems.push(newItem);
+      }
     }
 
-    res.json(updatedOrder); // Send back the updated order
+    latestOrder.items = mergedItems;
+    latestOrder.status = status || latestOrder.status;
+
+    await latestOrder.save();
+
+    res.json({ message: 'Order updated!', order: latestOrder });
+
   } catch (err) {
     console.error('Update order error:', err);
     res.status(500).json({ error: 'Failed to update order' });
   }
 });
+
 
 
 // --- Global Error Handler ---
