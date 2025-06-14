@@ -24,20 +24,18 @@ if (!JWT_SECRET || !process.env.MONGO_URI) {
 app.use(cors());
 app.use(express.json());
 
+// Define uploads directory path early
+const uploadDir = path.join(__dirname, 'uploads');
+
 // Ensure uploads folder exists
-if (!fs.existsSync('uploads')) {
-  fs.mkdirSync('uploads');
+if (!fs.existsSync(uploadDir)) {
+  fs.mkdirSync(uploadDir, { recursive: true });
 }
 
-// Multer setup for file uploads
+// Multer setup
 const storage = multer.diskStorage({
   destination: (req, file, cb) => {
-    const uploadPath = path.join(__dirname, 'uploads');
-    // Ensure uploads directory exists
-    if (!fs.existsSync(uploadPath)) {
-      fs.mkdirSync(uploadPath, { recursive: true });
-    }
-    cb(null, uploadPath);
+    cb(null, uploadDir);
   },
   filename: (req, file, cb) => {
     const uniqueName = `${Date.now()}-${Math.round(Math.random() * 1E9)}${path.extname(file.originalname)}`;
@@ -56,23 +54,26 @@ mongoose.connect(process.env.MONGO_URI, {
 }).then(async () => {
   console.log('✅ MongoDB connected');
 
-  const uploadDir = path.join(__dirname, 'uploads'); // Define uploadDir here
+  // Cleanup orphaned images on startup
+  try {
+    const foodItems = await Food.find();
 
-  // Get all food images filenames from DB (basename only)
-  const foodItems = await Food.find();
-  const existingImages = new Set(foodItems.map(item => path.basename(item.image)));
+    // Get basenames of images in DB
+    const existingImages = new Set(foodItems.map(item => path.basename(item.image)));
 
-  // Delete orphaned files in uploads folder (not referenced in DB)
-  if (fs.existsSync(uploadDir)) {
-    fs.readdirSync(uploadDir).forEach(file => {
-      if (!existingImages.has(file)) {
-        fs.unlinkSync(path.join(uploadDir, file));
-        console.log(`Deleted orphaned image: ${file}`);
-      }
-    });
+    if (fs.existsSync(uploadDir)) {
+      fs.readdirSync(uploadDir).forEach(file => {
+        if (!existingImages.has(file)) {
+          fs.unlinkSync(path.join(uploadDir, file));
+          console.log(`Deleted orphaned image: ${file}`);
+        }
+      });
+    }
+  } catch (err) {
+    console.error('Error during orphaned image cleanup:', err);
   }
 
-  // Recreate default admin user
+  // Reset admin user on startup
   await User.deleteOne({ username: 'admin' });
 
   const hashedPassword = await bcrypt.hash('admin123', 10);
@@ -247,7 +248,7 @@ app.delete('/api/food/:id', authenticateToken, isAdmin, async (req, res) => {
     if (!food) return res.status(404).json({ error: 'Food item not found' });
 
     if (food.image) {
-      const imagePath = path.join(__dirname, 'uploads', path.basename(food.image));
+      const imagePath = path.join(__dirname, food.image);
       if (fs.existsSync(imagePath)) {
         fs.unlinkSync(imagePath);
       }
@@ -261,7 +262,7 @@ app.delete('/api/food/:id', authenticateToken, isAdmin, async (req, res) => {
   }
 });
 
-app.use('/uploads', express.static(path.join(__dirname, 'uploads')));
+app.use('/uploads', express.static(uploadDir));
 
 // --- Order Routes ---
 app.post('/api/order', async (req, res) => {
