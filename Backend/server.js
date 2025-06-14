@@ -52,25 +52,6 @@ mongoose.connect(process.env.MONGO_URI, {
 }).then(async () => {
   console.log('✅ MongoDB connected');
 
-  // Cleanup orphaned images on startup
-  try {
-    const foodItems = await Food.find();
-
-    // Get basenames of images in DB
-    const existingImages = new Set(foodItems.map(item => path.basename(item.image)));
-
-    if (fs.existsSync(uploadDir)) {
-      fs.readdirSync(uploadDir).forEach(file => {
-        if (!existingImages.has(file)) {
-          fs.unlinkSync(path.join(uploadDir, file));
-          console.log(`Deleted orphaned image: ${file}`);
-        }
-      });
-    }
-  } catch (err) {
-    console.error('Error during orphaned image cleanup:', err);
-  }
-
   // Reset admin user on startup
   await User.deleteOne({ username: 'admin' });
 
