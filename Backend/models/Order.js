@@ -10,6 +10,10 @@ const orderSchema = new mongoose.Schema({
       quantity: Number,
     }
   ],
+  tableName: {
+    type: String,
+    required: true,
+  },
   time: {
     type: Date,
     default: Date.now,

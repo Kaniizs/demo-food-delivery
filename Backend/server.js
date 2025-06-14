@@ -247,7 +247,7 @@ app.delete('/api/food/:id', authenticateToken, isAdmin, async (req, res) => {
 });
 
 // --- Order Routes ---
-app.post('/api/order', async (req, res) => {
+app.post('/api/orders', async (req, res) => {
   try {
     const { items, tableName } = req.body;
 
@@ -275,35 +275,33 @@ app.get('/api/orders', async (req, res) => {
   }
 });
 
-app.put('/api/order/:id', authenticateToken, isAdmin, async (req, res) => {
+app.get('/api/orders/table/:tableName', async (req, res) => {
   try {
-    const updatedOrder = await Order.findByIdAndUpdate(
-      req.params.id,
-      { status: req.body.status },
-      { new: true }
-    );
-    if (!updatedOrder) return res.status(404).json({ error: 'Order not found' });
-    res.json({ message: 'Order status updated', order: updatedOrder });
+    const tableName = req.params.tableName;
+    if (!tableName) {
+      return res.status(400).json({ error: 'Table name is required' });
+    }
+    const orders = await Order.find({ tableName });
+    res.json(orders);
+  } catch (err) {
+    console.error('Get orders by table name error:', err);
+    res.status(500).json({ error: 'Failed to fetch orders by table name' });
+  }
+});
+
+app.put('/api/orders/table/:tableName', async (req, res) => {
+  try {
+    const tableName = req.params.tableName;
+    const { status } = req.body;
+    const updatedOrder = await Order.findOneAndUpdate({ tableName }, { status }, { new: true });
+    res.json(updatedOrder);
   } catch (err) {
     console.error('Update order status error:', err);
     res.status(500).json({ error: 'Failed to update order status' });
   }
 });
 
-app.get('/api/order/:id', async (req, res) => {
-  try {
-    const orderId = req.params.id;
-    if (!orderId || !mongoose.Types.ObjectId.isValid(orderId)) {
-      return res.status(400).json({ error: 'Invalid order ID' });
-    }
-    const order = await Order.findById(orderId);
-    if (!order) return res.status(404).json({ error: 'Order not found' });
-    res.json(order);
-  } catch (err) {
-    console.error('Get order by ID error:', err);
-    res.status(500).json({ error: 'Failed to fetch order' });
-  }
-});
+
 
 // --- Global Error Handler ---
 app.use((err, req, res, next) => {
