@@ -29,17 +29,46 @@ if (!fs.existsSync('uploads')) {
   fs.mkdirSync('uploads');
 }
 
+// Replace your current multer setup with this:
 const storage = multer.diskStorage({
-  destination: (req, file, cb) => cb(null, 'uploads/'),
-  filename: (req, file, cb) => cb(null, Date.now() + path.extname(file.originalname))
+  destination: (req, file, cb) => {
+    const uploadPath = path.join(__dirname, 'uploads');
+    // Ensure uploads directory exists
+    if (!fs.existsSync(uploadPath)) {
+      fs.mkdirSync(uploadPath, { recursive: true });
+    }
+    cb(null, uploadPath);
+  },
+  filename: (req, file, cb) => {
+    const uniqueName = `${Date.now()}-${Math.round(Math.random() * 1E9)}${path.extname(file.originalname)}`;
+    cb(null, uniqueName);
+  }
 });
-const upload = multer({ storage });
+
+const upload = multer({
+  storage,
+  limits: { fileSize: 5 * 1024 * 1024 } // 5MB limit
+});
 
 mongoose.connect(process.env.MONGO_URI, {
   useNewUrlParser: true,
   useUnifiedTopology: true,
 }).then(async () => {
   console.log('✅ MongoDB connected');
+
+  const foodItems = await Food.find();
+  const existingImages = new Set(foodItems.map(item => item.image));
+  
+  const uploadDir = path.join(__dirname, 'uploads');
+  if (fs.existsSync(uploadDir)) {
+    fs.readdirSync(uploadDir).forEach(file => {
+      const filePath = `/uploads/${file}`;
+      if (!existingImages.has(filePath)) {
+        fs.unlinkSync(path.join(uploadDir, file));
+        console.log(`Deleted orphaned image: ${file}`);
+      }
+    });
+  }
 
   await User.deleteOne({ username: 'admin' });
 
@@ -141,13 +170,22 @@ app.get('/api/menu', async (req, res) => {
 app.post('/api/food', authenticateToken, isAdmin, upload.single('image'), async (req, res) => {
   try {
     const { name, category, instructions, price } = req.body;
-    const imagePath = req.file ? `/uploads/${req.file.filename}` : null;
 
-    if (!name || !imagePath || !category || !instructions || !price) {
-      return res.status(400).json({ error: 'All fields are required' });
+    if (!req.file) {
+      return res.status(400).json({ error: 'Image is required' });
     }
 
-    const newFood = new Food({ name, image: imagePath, category, instructions, price });
+    // Store relative path in database
+    const imagePath = `/uploads/${req.file.filename}`;
+
+    const newFood = new Food({
+      name,
+      image: imagePath,
+      category,
+      instructions,
+      price
+    });
+
     await newFood.save();
     res.status(201).json({ message: 'Food item added', food: newFood });
   } catch (err) {
@@ -215,9 +253,12 @@ app.delete('/api/food/:id', authenticateToken, isAdmin, async (req, res) => {
     const food = await Food.findById(req.params.id);
     if (!food) return res.status(404).json({ error: 'Food item not found' });
 
+    // Delete the associated image file
     if (food.image) {
-      const imagePath = path.join(__dirname, 'uploads', path.basename(food.image));
-      if (fs.existsSync(imagePath)) fs.unlinkSync(imagePath);
+      const imagePath = path.join(__dirname, food.image);
+      if (fs.existsSync(imagePath)) {
+        fs.unlinkSync(imagePath);
+      }
     }
 
     await Food.findByIdAndDelete(req.params.id);
