@@ -57,7 +57,14 @@ mongoose.connect(process.env.MONGO_URI, {
   console.log('✅ MongoDB connected');
 
   const foodItems = await Food.find();
-  const existingImages = new Set(foodItems.map(item => item.image));
+  const existingImages = new Set(foodItems.map(item => path.basename(item.image)));
+
+  fs.readdirSync(uploadDir).forEach(file => {
+    if (!existingImages.has(file)) {
+      fs.unlinkSync(path.join(uploadDir, file));
+      console.log(`Deleted orphaned image: ${file}`);
+    }
+  });
 
   const uploadDir = path.join(__dirname, 'uploads');
   if (fs.existsSync(uploadDir)) {
