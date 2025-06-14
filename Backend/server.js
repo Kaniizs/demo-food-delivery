@@ -262,7 +262,7 @@ app.delete('/api/food/:id', authenticateToken, isAdmin, async (req, res) => {
   }
 });
 
-app.use('/uploads', express.static(uploadDir));
+app.use('/uploads', express.static(path.join(__dirname, 'uploads')));
 
 // --- Order Routes ---
 app.post('/api/order', async (req, res) => {
