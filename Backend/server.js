@@ -2,9 +2,9 @@ const express = require('express');
 const cors = require('cors');
 const bcrypt = require('bcrypt');
 const jwt = require('jsonwebtoken');
-const cloudinary = require('cloudinary').v2;
-const { CloudinaryStorage } = require('multer-storage-cloudinary');
 const multer = require('multer');
+const fs = require('fs');
+const path = require('path');
 const mongoose = require('mongoose');
 require('dotenv').config();
 
@@ -16,35 +16,40 @@ const app = express();
 const PORT = process.env.PORT || 5000;
 const JWT_SECRET = process.env.JWT_SECRET;
 
-if (!JWT_SECRET || !process.env.MONGO_URI || !process.env.CLOUDINARY_CLOUD_NAME || !process.env.CLOUDINARY_API_KEY || !process.env.CLOUDINARY_API_SECRET) {
-  console.error("❌ Missing required environment variables in .env file");
+if (!JWT_SECRET || !process.env.MONGO_URI) {
+  console.error("❌ Missing JWT_SECRET or MONGO_URI in .env file");
   process.exit(1);
 }
 
-// Configure Cloudinary
-cloudinary.config({
-  cloud_name: process.env.CLOUDINARY_CLOUD_NAME,
-  api_key: process.env.CLOUDINARY_API_KEY,
-  api_secret: process.env.CLOUDINARY_API_SECRET
-});
+// Define uploads directory path early
+const uploadDir = path.join(__dirname, 'uploads');
 
-// Configure Cloudinary storage
-const storage = new CloudinaryStorage({
-  cloudinary: cloudinary,
-  params: {
-    folder: 'food-delivery',
-    allowed_formats: ['jpg', 'jpeg', 'png'],
-    transformation: [{ width: 500, height: 500, crop: 'limit' }]
+// Ensure uploads folder exists
+if (!fs.existsSync(uploadDir)) {
+  fs.mkdirSync(uploadDir, { recursive: true });
+}
+
+// Multer setup
+const storage = multer.diskStorage({
+  destination: (req, file, cb) => {
+    cb(null, uploadDir);
+  },
+  filename: (req, file, cb) => {
+    const uniqueName = `${Date.now()}-${Math.round(Math.random() * 1E9)}${path.extname(file.originalname)}`;
+    cb(null, uniqueName);
   }
 });
 
 const upload = multer({
-  storage: storage,
+  storage,
   limits: { fileSize: 5 * 1024 * 1024 } // 5MB limit
 });
 
 app.use(cors());
 app.use(express.json());
+
+// Serve static files from uploads directory
+app.use('/uploads', express.static(path.join(__dirname, 'uploads')));
 
 mongoose.connect(process.env.MONGO_URI, {
   useNewUrlParser: true,
@@ -157,11 +162,11 @@ app.post('/api/food', authenticateToken, isAdmin, upload.single('image'), async 
       return res.status(400).json({ error: 'Image is required' });
     }
 
-    const imageUrl = req.file.path; // Cloudinary provides the URL directly
+    const imagePath = `/uploads/${req.file.filename}`;
 
     const newFood = new Food({
       name,
-      image: imageUrl,
+      image: imagePath,
       category,
       instructions,
       price
@@ -197,21 +202,20 @@ app.put('/api/food/:id', authenticateToken, isAdmin, upload.single('image'), asy
     const existingFood = await Food.findById(foodId);
     if (!existingFood) return res.status(404).json({ error: 'Food item not found' });
 
-    let imageUrl = existingFood.image;
+    let imagePath = existingFood.image;
     if (req.file) {
-      // Delete old image from Cloudinary if it exists
-      if (imageUrl) {
-        const publicId = imageUrl.split('/').slice(-1)[0].split('.')[0];
-        await cloudinary.uploader.destroy(publicId);
+      if (imagePath) {
+        const oldImagePath = path.join(__dirname, 'uploads', path.basename(imagePath));
+        if (fs.existsSync(oldImagePath)) fs.unlinkSync(oldImagePath);
       }
-      imageUrl = req.file.path;
+      imagePath = `/uploads/${req.file.filename}`;
     }
 
     existingFood.name = name;
     existingFood.category = category;
     existingFood.instructions = instructions;
     existingFood.price = price;
-    existingFood.image = imageUrl;
+    existingFood.image = imagePath;
 
     const updatedFood = await existingFood.save();
     res.json({ message: 'Food item updated', food: updatedFood });
@@ -227,10 +231,11 @@ app.delete('/api/food/:id', authenticateToken, isAdmin, async (req, res) => {
     const food = await Food.findById(req.params.id);
     if (!food) return res.status(404).json({ error: 'Food item not found' });
 
-    // Delete image from Cloudinary if it exists
     if (food.image) {
-      const publicId = food.image.split('/').slice(-1)[0].split('.')[0];
-      await cloudinary.uploader.destroy(publicId);
+      const imagePath = path.join(__dirname, food.image);
+      if (fs.existsSync(imagePath)) {
+        fs.unlinkSync(imagePath);
+      }
     }
 
     await Food.findByIdAndDelete(req.params.id);
