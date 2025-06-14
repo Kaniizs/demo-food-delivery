@@ -275,64 +275,31 @@ app.get('/api/orders', async (req, res) => {
   }
 });
 
-app.get('/api/orders/table/:tableName', async (req, res) => {
+app.get('/api/orders/:id', async (req, res) => {
   try {
-    const tableName = req.params.tableName;
-    if (!tableName) {
-      return res.status(400).json({ error: 'Table name is required' });
-    }
-    const orders = await Order.find({ tableName });
-    res.json(orders);
-  } catch (err) {
-    console.error('Get orders by table name error:', err);
-    res.status(500).json({ error: 'Failed to fetch orders by table name' });
+    const order = await Order.findById(req.params.id);
+    if (!order) return res.status(404).json({ error: 'Order not found' });
+    res.json(order);
+  }
+  catch (err) {
+    console.error('Get order by ID error:', err);
+    res.status(500).json({ error: 'Failed to fetch order' });
   }
 });
 
-app.put('/api/orders/table/:tableName', async (req, res) => {
+app.put('/api/orders/:id', async (req, res) => {
   try {
-    const tableName = req.params.tableName;
-    const { status, items } = req.body;
-
-    if (!tableName) {
-      return res.status(400).json({ error: 'Table name is required' });
-    }
-
-    if (!items || !Array.isArray(items) || items.length === 0) {
-      return res.status(400).json({ error: 'Invalid items list' });
-    }
-
-    const latestOrder = await Order.findOne({ tableName }).sort({ time: -1 });
-
-    if (!latestOrder) {
-      return res.status(404).json({ error: 'No active order found for this table' });
-    }
-
-    // Merge existing items with new ones
-    const mergedItems = [...latestOrder.items];
-
-    for (const newItem of items) {
-      const existingItem = mergedItems.find(item => item._id.toString() === newItem._id);
-      if (existingItem) {
-        existingItem.quantity += newItem.quantity;
-      } else {
-        mergedItems.push(newItem);
-      }
-    }
-
-    latestOrder.items = mergedItems;
-    latestOrder.status = status || latestOrder.status;
-
-    await latestOrder.save();
-
-    res.json({ message: 'Order updated!', order: latestOrder });
-
-  } catch (err) {
+    const order = await Order.findById(req.params.id);
+    if (!order) return res.status(404).json({ error: 'Order not found' });
+    order.status = req.body.status;
+    await order.save();
+    res.json({ message: 'Order status updated', order });
+  }
+  catch (err) {
     console.error('Update order error:', err);
     res.status(500).json({ error: 'Failed to update order' });
   }
 });
-
 
 
 // --- Global Error Handler ---
