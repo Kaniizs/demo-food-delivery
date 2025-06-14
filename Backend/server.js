@@ -255,7 +255,7 @@ app.post('/api/order', async (req, res) => {
       return res.status(400).json({ error: 'Invalid order data' });
     }
 
-    const newOrder = new Order({ tableName, items });
+    const newOrder = new Order({ tableName, items, status: "waiting to prepare" });
     await newOrder.save();
 
     res.status(201).json({ message: 'Order placed!', order: newOrder });

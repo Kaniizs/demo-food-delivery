@@ -13,6 +13,10 @@ const orderSchema = new mongoose.Schema({
   time: {
     type: Date,
     default: Date.now,
+  },
+  status: {
+    type: String,
+    default: 'waiting to prepare',
   }
 });
 
