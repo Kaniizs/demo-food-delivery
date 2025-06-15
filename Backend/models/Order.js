@@ -20,7 +20,7 @@ const orderSchema = new mongoose.Schema({
   },
   status: {
     type: String,
-    default: 'waiting to prepare',
+    default: 'รอการเตรียมอาหาร',
   }
 });
 

@@ -262,8 +262,28 @@ app.post('/api/orders', async (req, res) => {
     });
 
     if (existingOrder) {
-      // Update existing order by adding new items
-      existingOrder.items = [...existingOrder.items, ...items];
+      // Combine quantities for same menu items
+      const existingItems = existingOrder.items;
+      const newItems = items;
+
+      // Create a map of existing items by their id
+      const itemMap = new Map();
+      existingItems.forEach(item => {
+        itemMap.set(item.id, item);
+      });
+
+      // Update quantities for existing items or add new items
+      newItems.forEach(newItem => {
+        if (itemMap.has(newItem.id)) {
+          // If item exists, update quantity
+          const existingItem = itemMap.get(newItem.id);
+          existingItem.quantity += newItem.quantity;
+        } else {
+          // If item is new, add it to the order
+          existingItems.push(newItem);
+        }
+      });
+
       await existingOrder.save();
       res.json({ message: 'เพิ่มรายการอาหารสำเร็จ!', order: existingOrder });
     } else {
@@ -310,21 +330,6 @@ app.get('/api/orders/:tableName', async (req, res) => {
     res.status(500).json({ error: 'ไม่สามารถดึงข้อมูลคำสั่งซื้อได้' });
   }
 });
-
-app.put('/api/orders/:tableName', async (req, res) => {
-  try {
-    const order = await Order.findById(req.params.id);
-    if (!order) return res.status(404).json({ error: 'ไม่พบคำสั่งซื้อ' });
-    order.status = req.body.status;
-    await order.save();
-    res.json({ message: 'อัพเดทสถานะคำสั่งซื้อสำเร็จ', order });
-  }
-  catch (err) {
-    console.error('Update order error:', err);
-    res.status(500).json({ error: 'ไม่สามารถอัพเดทสถานะคำสั่งซื้อได้' });
-  }
-});
-
 
 // --- Global Error Handler ---
 app.use((err, req, res, next) => {
