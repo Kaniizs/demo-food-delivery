@@ -251,14 +251,28 @@ app.post('/api/orders', async (req, res) => {
   try {
     const { items, tableName } = req.body;
 
-    if (!items || items.length === 0 || !tableName) {
-      return res.status(400).json({ error: 'ข้อมูลคำสั่งซื้อไม่ถูกต้อง' });
+    if (!items || !Array.isArray(items) || items.length === 0) {
+      return res.status(400).json({ error: 'กรุณาระบุรายการอาหาร' });
+    }
+
+    if (!tableName || typeof tableName !== 'string') {
+      return res.status(400).json({ error: 'กรุณาระบุหมายเลขโต๊ะ' });
+    }
+
+    // Validate each item in the order
+    for (const item of items) {
+      if (!item.id || !item.name || !item.price || !item.quantity) {
+        return res.status(400).json({ error: 'ข้อมูลรายการอาหารไม่ครบถ้วน' });
+      }
+      if (item.quantity < 1) {
+        return res.status(400).json({ error: 'จำนวนอาหารต้องมากกว่า 0' });
+      }
     }
 
     // Check if there's an existing order for this table
     let existingOrder = await Order.findOne({ 
       tableName: tableName,
-      status: { $in: ["รอการเตรียม", "กำลังเตรียม"] }
+      status: { $in: ["รอการเตรียม", "กำลังเตรียม", "พร้อมเสิร์ฟ"] }
     });
 
     if (existingOrder) {
@@ -291,7 +305,8 @@ app.post('/api/orders', async (req, res) => {
       const newOrder = new Order({ 
         tableName, 
         items, 
-        status: "รอการเตรียม" 
+        status: "รอการเตรียม",
+        time: new Date()
       });
       await newOrder.save();
       res.status(201).json({ message: 'สั่งอาหารสำเร็จ!', order: newOrder });
@@ -315,9 +330,14 @@ app.get('/api/orders', async (req, res) => {
 app.get('/api/orders/:tableName', async (req, res) => {
   try {
     const { tableName } = req.params;
+
+    if (!tableName || typeof tableName !== 'string') {
+      return res.status(400).json({ error: 'กรุณาระบุหมายเลขโต๊ะ' });
+    }
+
     const order = await Order.findOne({ 
       tableName: tableName,
-      status: { $in: ["รอการเตรียม", "กำลังเตรียม"] }
+      status: { $in: ["รอการเตรียม", "กำลังเตรียม", "พร้อมเสิร์ฟ"] }
     }).sort({ time: -1 });
 
     if (!order) {
@@ -336,7 +356,11 @@ app.put('/api/orders/:tableName/status', async (req, res) => {
     const { tableName } = req.params;
     const { status } = req.body;
 
-    if (!status) {
+    if (!tableName || typeof tableName !== 'string') {
+      return res.status(400).json({ error: 'กรุณาระบุหมายเลขโต๊ะ' });
+    }
+
+    if (!status || typeof status !== 'string') {
       return res.status(400).json({ error: 'กรุณาระบุสถานะ' });
     }
 
@@ -348,7 +372,7 @@ app.put('/api/orders/:tableName/status', async (req, res) => {
 
     const order = await Order.findOne({ 
       tableName: tableName,
-      status: { $in: ["รอการเตรียม", "กำลังเตรียม"] }
+      status: { $in: ["รอการเตรียม", "กำลังเตรียม", "พร้อมเสิร์ฟ"] }
     }).sort({ time: -1 });
 
     if (!order) {
@@ -366,6 +390,30 @@ app.put('/api/orders/:tableName/status', async (req, res) => {
   catch (err) {
     console.error('Update order status error:', err);
     res.status(500).json({ error: 'ไม่สามารถอัพเดทสถานะคำสั่งซื้อได้' });
+  }
+});
+
+app.delete('/api/orders/:tableName', async (req, res) => {
+  try {
+    const { tableName } = req.params;
+
+    if (!tableName || typeof tableName !== 'string') {
+      return res.status(400).json({ error: 'กรุณาระบุหมายเลขโต๊ะ' });
+    }
+
+    const order = await Order.findOneAndDelete({ 
+      tableName: tableName,
+      status: { $in: ["รอการเตรียม", "กำลังเตรียม", "พร้อมเสิร์ฟ"] }
+    });
+
+    if (!order) {
+      return res.status(404).json({ error: 'ไม่พบคำสั่งซื้อ' });
+    }
+    res.json({ message: 'ลบคำสั่งซื้อสำเร็จ', order });
+  }
+  catch (err) {
+    console.error('Delete order error:', err);
+    res.status(500).json({ error: 'ไม่สามารถลบคำสั่งซื้อได้' });
   }
 });
 
