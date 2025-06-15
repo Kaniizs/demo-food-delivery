@@ -255,10 +255,27 @@ app.post('/api/orders', async (req, res) => {
       return res.status(400).json({ error: 'ข้อมูลคำสั่งซื้อไม่ถูกต้อง' });
     }
 
-    const newOrder = new Order({ tableName, items, status: "รอการเตรียม" });
-    await newOrder.save();
+    // Check if there's an existing order for this table
+    let existingOrder = await Order.findOne({ 
+      tableName: tableName,
+      status: { $in: ["รอการเตรียม", "กำลังเตรียม"] }
+    });
 
-    res.status(201).json({ message: 'สั่งอาหารสำเร็จ!', order: newOrder });
+    if (existingOrder) {
+      // Update existing order by adding new items
+      existingOrder.items = [...existingOrder.items, ...items];
+      await existingOrder.save();
+      res.json({ message: 'เพิ่มรายการอาหารสำเร็จ!', order: existingOrder });
+    } else {
+      // Create new order if no existing order found
+      const newOrder = new Order({ 
+        tableName, 
+        items, 
+        status: "รอการเตรียม" 
+      });
+      await newOrder.save();
+      res.status(201).json({ message: 'สั่งอาหารสำเร็จ!', order: newOrder });
+    }
   } catch (err) {
     console.error('Create order error:', err);
     res.status(500).json({ error: 'ไม่สามารถบันทึกคำสั่งซื้อได้' });
@@ -277,12 +294,19 @@ app.get('/api/orders', async (req, res) => {
 
 app.get('/api/orders/:tableName', async (req, res) => {
   try {
-    const order = await Order.findById(req.params.id);
-    if (!order) return res.status(404).json({ error: 'ไม่พบคำสั่งซื้อ' });
+    const { tableName } = req.params;
+    const order = await Order.findOne({ 
+      tableName: tableName,
+      status: { $in: ["รอการเตรียม", "กำลังเตรียม"] }
+    }).sort({ time: -1 });
+
+    if (!order) {
+      return res.status(404).json({ error: 'ไม่พบคำสั่งซื้อ' });
+    }
     res.json(order);
   }
   catch (err) {
-    console.error('Get order by ID error:', err);
+    console.error('Get order by table name error:', err);
     res.status(500).json({ error: 'ไม่สามารถดึงข้อมูลคำสั่งซื้อได้' });
   }
 });
