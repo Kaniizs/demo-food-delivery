@@ -331,6 +331,44 @@ app.get('/api/orders/:tableName', async (req, res) => {
   }
 });
 
+app.put('/api/orders/:tableName/status', async (req, res) => {
+  try {
+    const { tableName } = req.params;
+    const { status } = req.body;
+
+    if (!status) {
+      return res.status(400).json({ error: 'กรุณาระบุสถานะ' });
+    }
+
+    // Validate status values
+    const validStatuses = ["รอการเตรียม", "กำลังเตรียม", "พร้อมเสิร์ฟ"];
+    if (!validStatuses.includes(status)) {
+      return res.status(400).json({ error: 'สถานะไม่ถูกต้อง' });
+    }
+
+    const order = await Order.findOne({ 
+      tableName: tableName,
+      status: { $in: ["รอการเตรียม", "กำลังเตรียม"] }
+    }).sort({ time: -1 });
+
+    if (!order) {
+      return res.status(404).json({ error: 'ไม่พบคำสั่งซื้อ' });
+    }
+
+    order.status = status;
+    await order.save();
+    
+    res.json({ 
+      message: 'อัพเดทสถานะคำสั่งซื้อสำเร็จ', 
+      order 
+    });
+  }
+  catch (err) {
+    console.error('Update order status error:', err);
+    res.status(500).json({ error: 'ไม่สามารถอัพเดทสถานะคำสั่งซื้อได้' });
+  }
+});
+
 // --- Global Error Handler ---
 app.use((err, req, res, next) => {
   console.error('Unhandled error:', err);
