@@ -73,19 +73,19 @@ mongoose.connect(process.env.MONGO_URI, {
 app.post('/api/register', async (req, res) => {
   try {
     const { username, password, role = 'user' } = req.body;
-    if (!username || !password) return res.status(400).json({ error: 'Missing username or password' });
+    if (!username || !password) return res.status(400).json({ error: 'กรุณากรอกชื่อผู้ใช้และรหัสผ่าน' });
 
     const existingUser = await User.findOne({ username });
-    if (existingUser) return res.status(400).json({ error: 'Username already exists' });
+    if (existingUser) return res.status(400).json({ error: 'ชื่อผู้ใช้นี้มีอยู่ในระบบแล้ว' });
 
     const hashedPassword = await bcrypt.hash(password, 10);
     const newUser = new User({ username, password: hashedPassword, role });
     await newUser.save();
 
-    res.status(201).json({ message: 'User registered' });
+    res.status(201).json({ message: 'ลงทะเบียนสำเร็จ' });
   } catch (err) {
     console.error('Register error:', err);
-    res.status(500).json({ error: 'Registration failed' });
+    res.status(500).json({ error: 'การลงทะเบียนล้มเหลว' });
   }
 });
 
@@ -94,10 +94,10 @@ app.post('/api/login', async (req, res) => {
     const { username, password } = req.body;
 
     const user = await User.findOne({ username });
-    if (!user) return res.status(401).json({ error: 'Invalid credentials' });
+    if (!user) return res.status(401).json({ error: 'ชื่อผู้ใช้หรือรหัสผ่านไม่ถูกต้อง' });
 
     const isMatch = await bcrypt.compare(password, user.password);
-    if (!isMatch) return res.status(401).json({ error: 'Invalid credentials' });
+    if (!isMatch) return res.status(401).json({ error: 'ชื่อผู้ใช้หรือรหัสผ่านไม่ถูกต้อง' });
 
     const token = jwt.sign({ username, role: user.role }, JWT_SECRET, { expiresIn: '1h' });
     res.json({ token, role: user.role || 'user' });
@@ -110,27 +110,27 @@ app.post('/api/login', async (req, res) => {
 // --- Middleware ---
 function authenticateToken(req, res, next) {
   const token = req.headers['authorization']?.split(' ')[1];
-  if (!token) return res.status(401).json({ error: 'Token missing' });
+  if (!token) return res.status(401).json({ error: 'ไม่พบโทเค็น' });
 
   jwt.verify(token, JWT_SECRET, (err, user) => {
-    if (err) return res.status(403).json({ error: 'Invalid token' });
+    if (err) return res.status(403).json({ error: 'โทเค็นไม่ถูกต้อง' });
     req.user = user;
     next();
   });
 }
 
 function isAdmin(req, res, next) {
-  if (req.user.role !== 'admin') return res.status(403).json({ error: 'Access denied: Admins only' });
+  if (req.user.role !== 'admin') return res.status(403).json({ error: 'เฉพาะผู้ดูแลระบบเท่านั้น' });
   next();
 }
 
 // --- Protected Routes ---
 app.get('/api/admin-stats', authenticateToken, isAdmin, (req, res) => {
-  res.json({ message: 'Hello Admin, here are your stats.' });
+  res.json({ message: 'สวัสดีผู้ดูแลระบบ นี่คือสถิติของคุณ' });
 });
 
 app.get('/api/protected', authenticateToken, (req, res) => {
-  res.json({ message: `Hello ${req.user.username}, this is protected data.` });
+  res.json({ message: `สวัสดี ${req.user.username} นี่คือข้อมูลที่ได้รับการป้องกัน` });
 });
 
 app.get('/api/users', authenticateToken, isAdmin, async (req, res) => {
@@ -139,7 +139,7 @@ app.get('/api/users', authenticateToken, isAdmin, async (req, res) => {
     res.json(users);
   } catch (err) {
     console.error('Error fetching users:', err);
-    res.status(500).json({ error: 'Failed to fetch users' });
+    res.status(500).json({ error: 'ไม่สามารถดึงข้อมูลผู้ใช้ได้' });
   }
 });
 
@@ -150,7 +150,7 @@ app.get('/api/menu', async (req, res) => {
     res.json(foodItems);
   } catch (err) {
     console.error('Error fetching food items:', err);
-    res.status(500).json({ error: 'Failed to fetch food items' });
+    res.status(500).json({ error: 'ไม่สามารถดึงรายการอาหารได้' });
   }
 });
 
@@ -159,7 +159,7 @@ app.post('/api/food', authenticateToken, isAdmin, upload.single('image'), async 
     const { name, category, instructions, price } = req.body;
 
     if (!req.file) {
-      return res.status(400).json({ error: 'Image is required' });
+      return res.status(400).json({ error: 'กรุณาอัพโหลดรูปภาพ' });
     }
 
     const imagePath = `/uploads/${req.file.filename}`;
@@ -173,10 +173,10 @@ app.post('/api/food', authenticateToken, isAdmin, upload.single('image'), async 
     });
 
     await newFood.save();
-    res.status(201).json({ message: 'Food item added', food: newFood });
+    res.status(201).json({ message: 'เพิ่มรายการอาหารสำเร็จ', food: newFood });
   } catch (err) {
     console.error('Add food error:', err);
-    res.status(500).json({ error: 'Failed to add food item' });
+    res.status(500).json({ error: 'ไม่สามารถเพิ่มรายการอาหารได้' });
   }
 });
 
@@ -185,12 +185,12 @@ app.get('/api/food/:id', async (req, res) => {
     const foodId = req.params.id;
     const food = await Food.findById(foodId);
     if (!food) {
-      return res.status(404).json({ error: 'Food item not found' });
+      return res.status(404).json({ error: 'ไม่พบรายการอาหาร' });
     }
     res.json(food);
   } catch (err) {
     console.error('Get food by ID error:', err);
-    res.status(500).json({ error: 'Failed to fetch food item' });
+    res.status(500).json({ error: 'ไม่สามารถดึงข้อมูลรายการอาหารได้' });
   }
 });
 
@@ -200,7 +200,7 @@ app.put('/api/food/:id', authenticateToken, isAdmin, upload.single('image'), asy
     const { name, category, instructions, price } = req.body;
 
     const existingFood = await Food.findById(foodId);
-    if (!existingFood) return res.status(404).json({ error: 'Food item not found' });
+    if (!existingFood) return res.status(404).json({ error: 'ไม่พบรายการอาหาร' });
 
     let imagePath = existingFood.image;
     if (req.file) {
@@ -218,18 +218,18 @@ app.put('/api/food/:id', authenticateToken, isAdmin, upload.single('image'), asy
     existingFood.image = imagePath;
 
     const updatedFood = await existingFood.save();
-    res.json({ message: 'Food item updated', food: updatedFood });
+    res.json({ message: 'อัพเดทรายการอาหารสำเร็จ', food: updatedFood });
 
   } catch (err) {
     console.error('Update food error:', err);
-    res.status(500).json({ error: 'Failed to update food item' });
+    res.status(500).json({ error: 'ไม่สามารถอัพเดทรายการอาหารได้' });
   }
 });
 
 app.delete('/api/food/:id', authenticateToken, isAdmin, async (req, res) => {
   try {
     const food = await Food.findById(req.params.id);
-    if (!food) return res.status(404).json({ error: 'Food item not found' });
+    if (!food) return res.status(404).json({ error: 'ไม่พบรายการอาหาร' });
 
     if (food.image) {
       const imagePath = path.join(__dirname, food.image);
@@ -239,10 +239,10 @@ app.delete('/api/food/:id', authenticateToken, isAdmin, async (req, res) => {
     }
 
     await Food.findByIdAndDelete(req.params.id);
-    res.json({ message: 'Food item and image deleted successfully' });
+    res.json({ message: 'ลบรายการอาหารและรูปภาพสำเร็จ' });
   } catch (err) {
     console.error('Delete food error:', err);
-    res.status(500).json({ error: 'Failed to delete food item' });
+    res.status(500).json({ error: 'ไม่สามารถลบรายการอาหารได้' });
   }
 });
 
@@ -252,16 +252,16 @@ app.post('/api/orders', async (req, res) => {
     const { items, tableName } = req.body;
 
     if (!items || items.length === 0 || !tableName) {
-      return res.status(400).json({ error: 'Invalid order data' });
+      return res.status(400).json({ error: 'ข้อมูลคำสั่งซื้อไม่ถูกต้อง' });
     }
 
-    const newOrder = new Order({ tableName, items, status: "waiting to prepare" });
+    const newOrder = new Order({ tableName, items, status: "รอการเตรียม" });
     await newOrder.save();
 
-    res.status(201).json({ message: 'Order placed!', order: newOrder });
+    res.status(201).json({ message: 'สั่งอาหารสำเร็จ!', order: newOrder });
   } catch (err) {
     console.error('Create order error:', err);
-    res.status(500).json({ error: 'Failed to save order' });
+    res.status(500).json({ error: 'ไม่สามารถบันทึกคำสั่งซื้อได้' });
   }
 });
 
@@ -271,33 +271,33 @@ app.get('/api/orders', async (req, res) => {
     res.json(orders);
   } catch (err) {
     console.error('Get orders error:', err);
-    res.status(500).json({ error: 'Failed to fetch orders' });
+    res.status(500).json({ error: 'ไม่สามารถดึงข้อมูลคำสั่งซื้อได้' });
   }
 });
 
-app.get('/api/orders/:id', async (req, res) => {
+app.get('/api/orders/:tableName', async (req, res) => {
   try {
     const order = await Order.findById(req.params.id);
-    if (!order) return res.status(404).json({ error: 'Order not found' });
+    if (!order) return res.status(404).json({ error: 'ไม่พบคำสั่งซื้อ' });
     res.json(order);
   }
   catch (err) {
     console.error('Get order by ID error:', err);
-    res.status(500).json({ error: 'Failed to fetch order' });
+    res.status(500).json({ error: 'ไม่สามารถดึงข้อมูลคำสั่งซื้อได้' });
   }
 });
 
-app.put('/api/orders/:id', async (req, res) => {
+app.put('/api/orders/:tableName', async (req, res) => {
   try {
     const order = await Order.findById(req.params.id);
-    if (!order) return res.status(404).json({ error: 'Order not found' });
+    if (!order) return res.status(404).json({ error: 'ไม่พบคำสั่งซื้อ' });
     order.status = req.body.status;
     await order.save();
-    res.json({ message: 'Order status updated', order });
+    res.json({ message: 'อัพเดทสถานะคำสั่งซื้อสำเร็จ', order });
   }
   catch (err) {
     console.error('Update order error:', err);
-    res.status(500).json({ error: 'Failed to update order' });
+    res.status(500).json({ error: 'ไม่สามารถอัพเดทสถานะคำสั่งซื้อได้' });
   }
 });
 
@@ -305,10 +305,10 @@ app.put('/api/orders/:id', async (req, res) => {
 // --- Global Error Handler ---
 app.use((err, req, res, next) => {
   console.error('Unhandled error:', err);
-  res.status(500).json({ error: 'Internal server error' });
+  res.status(500).json({ error: 'เกิดข้อผิดพลาดภายในเซิร์ฟเวอร์' });
 });
 
 // --- Start Server ---
 app.listen(PORT, () => {
-  console.log(`🚀 Server running at http://localhost:${PORT}`);
+  console.log(`🚀 เซิร์ฟเวอร์ทำงานที่ http://localhost:${PORT}`);
 });
