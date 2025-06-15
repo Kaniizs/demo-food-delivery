@@ -1,14 +1,9 @@
 import React, { useContext } from 'react';
 import { BrowserRouter, Routes, Route, Navigate, useLocation } from 'react-router-dom';
 import { AuthContext } from './pages/contexts/AuthContexts';
-import { CartProvider } from './pages/contexts/Cartcontexts';
 import Navbar from './pages/components/Nav';
 
-import FoodList from './pages/FoodList';
-import FoodDetails from './pages/FoodDetails';
-import Checkout from './pages/Checkout';
-import Login from './pages/auth/Login';
-import Register from './pages/auth/Register';
+
 import AdminLogin from './pages/auth/admin/AdminLogin';
 import Dashboard from './pages/auth/admin/Dashboard';
 
@@ -19,17 +14,13 @@ function PrivateRoute({ children }) {
 
 function Layout() {
   const location = useLocation();
-  const hideNavbar = location.pathname === '/login' || location.pathname === '/register' || location.pathname === '/admin/login';
+  const hideNavbar = location.pathname === '/admin/login';
 
   return (
     <>
       {!hideNavbar && <Navbar />}
       <Routes>
-        <Route path="/" element={<FoodList />} />
-        <Route path="/food/:id" element={<FoodDetails />} />
-        <Route path="/checkout" element={<Checkout />} />
-        <Route path="/login" element={<Login />} />
-        <Route path="/register" element={<Register />} />
+        <Route path="/" element={<Navigate to="/admin/login" replace />} />
         <Route path="/admin/login" element={<AdminLogin />} />
         <Route
           path="/admin/dashboard"
@@ -47,11 +38,11 @@ function Layout() {
 
 function App() {
   return (
-    <CartProvider>
-      <BrowserRouter>
-        <Layout />
-      </BrowserRouter>
-    </CartProvider>
+
+    <BrowserRouter>
+      <Layout />
+    </BrowserRouter>
+
   );
 }
 

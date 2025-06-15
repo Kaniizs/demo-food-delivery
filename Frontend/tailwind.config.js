@@ -4,7 +4,14 @@ module.exports = {
     "./src/**/*.{js,jsx,ts,tsx}",
   ],
   theme: {
-    extend: {},
+    extend: {
+      fontFamily: {
+        'Kadwa': ['Kadwa', 'sans-serif'],
+      },
+      colors: {
+        'custom-green': '#3CF464',
+      }
+    }
   },
   plugins: [],
 }
