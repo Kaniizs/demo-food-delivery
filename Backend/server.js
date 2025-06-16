@@ -148,6 +148,27 @@ app.get('/api/users', authenticateToken, isStaff, async (req, res) => {
   }
 });
 
+// Add this endpoint to get current user info
+app.get('/api/users/me', authenticateToken, async (req, res) => {
+  try {
+    const user = await User.findOne({ username: req.user.username }, '-password');
+    if (!user) {
+      return res.status(404).json({ error: 'ไม่พบผู้ใช้' });
+    }
+    res.json({
+      id: user._id,
+      username: user.username,
+      role: user.role,
+      roleDisplay: user.role === 'admin' ? 'ผู้ดูแลระบบ' : 
+                  user.role === 'chef' ? 'เชฟ' : 
+                  'พนักงานเสิร์ฟ'
+    });
+  } catch (err) {
+    console.error('Error fetching current user:', err);
+    res.status(500).json({ error: 'ไม่สามารถดึงข้อมูลผู้ใช้ได้' });
+  }
+});
+
 // --- Menu Routes ---
 app.get('/api/menu', authenticateToken, isStaff, async (req, res) => {
   try {
