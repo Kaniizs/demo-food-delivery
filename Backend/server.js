@@ -57,17 +57,38 @@ mongoose.connect(process.env.MONGO_URI, {
 }).then(async () => {
   console.log('✅ MongoDB connected');
 
-  // Reset admin user on startup
-  await User.deleteOne({ username: 'admin' });
+  // Reset default users on startup
+  await User.deleteMany({ role: { $in: ['admin', 'chef', 'waiter'] } });
 
-  const hashedPassword = await bcrypt.hash('admin123', 10);
+  // Create default admin user
+  const adminPassword = await bcrypt.hash('admin123', 10);
   const admin = new User({
     username: 'admin',
-    password: hashedPassword,
+    password: adminPassword,
     role: 'admin',
   });
   await admin.save();
   console.log('👑 Default admin user recreated: admin / admin123');
+
+  // Create default chef user
+  const chefPassword = await bcrypt.hash('chef123', 10);
+  const chef = new User({
+    username: 'chef',
+    password: chefPassword,
+    role: 'chef',
+  });
+  await chef.save();
+  console.log('👨‍🍳 Default chef user recreated: chef / chef123');
+
+  // Create default waiter user
+  const waiterPassword = await bcrypt.hash('waiter123', 10);
+  const waiter = new User({
+    username: 'waiter',
+    password: waiterPassword,
+    role: 'waiter',
+  });
+  await waiter.save();
+  console.log('👨‍💼 Default waiter user recreated: waiter / waiter123');
 }).catch(err => console.error('❌ MongoDB connection error:', err));
 
 app.post('/api/register', async (req, res) => {
@@ -77,6 +98,11 @@ app.post('/api/register', async (req, res) => {
 
     const existingUser = await User.findOne({ username });
     if (existingUser) return res.status(400).json({ error: 'ชื่อผู้ใช้นี้มีอยู่ในระบบแล้ว' });
+
+    // Only allow admin to create new users
+    if (req.user?.role !== 'admin') {
+      return res.status(403).json({ error: 'ไม่มีสิทธิ์ในการลงทะเบียนผู้ใช้' });
+    }
 
     const hashedPassword = await bcrypt.hash(password, 10);
     const newUser = new User({ username, password: hashedPassword, role });
@@ -100,10 +126,10 @@ app.post('/api/login', async (req, res) => {
     if (!isMatch) return res.status(401).json({ error: 'ชื่อผู้ใช้หรือรหัสผ่านไม่ถูกต้อง' });
 
     const token = jwt.sign({ username, role: user.role }, JWT_SECRET, { expiresIn: '1h' });
-    res.json({ token, role: user.role || 'user' });
+    res.json({ token, role: user.role });
   } catch (err) {
     console.error('Login error:', err);
-    res.status(500).json({ error: 'Login failed' });
+    res.status(500).json({ error: 'เข้าสู่ระบบล้มเหลว' });
   }
 });
 
@@ -121,6 +147,16 @@ function authenticateToken(req, res, next) {
 
 function isAdmin(req, res, next) {
   if (req.user.role !== 'admin') return res.status(403).json({ error: 'เฉพาะผู้ดูแลระบบเท่านั้น' });
+  next();
+}
+
+function isChef(req, res, next) {
+  if (req.user.role !== 'chef') return res.status(403).json({ error: 'เฉพาะพ่อครัวเท่านั้น' });
+  next();
+}
+
+function isWaiter(req, res, next) {
+  if (req.user.role !== 'waiter') return res.status(403).json({ error: 'เฉพาะพนักงานเสิร์ฟเท่านั้น' });
   next();
 }
 
@@ -337,9 +373,30 @@ app.post('/api/orders', async (req, res) => {
   }
 });
 
-app.get('/api/orders', async (req, res) => {
+app.get('/api/orders', authenticateToken, async (req, res) => {
   try {
-    const orders = await Order.find().sort({ time: -1 });
+    const userRole = req.user.role;
+    let orders;
+    let statusFilter;
+
+    switch (userRole) {
+      case 'chef':
+        // Chef sees orders that need preparation
+        statusFilter = { $in: ["รอการเตรียม", "กำลังเตรียม"] };
+        break;
+      case 'waiter':
+        // Waiter sees orders ready to be served
+        statusFilter = { $in: ["พร้อมเสิร์ฟ"] };
+        break;
+      case 'admin':
+        // Admin sees all orders
+        statusFilter = {};
+        break;
+      default:
+        return res.status(403).json({ error: 'ไม่มีสิทธิ์เข้าถึง' });
+    }
+
+    orders = await Order.find(statusFilter).sort({ time: -1 });
     res.json(orders);
   } catch (err) {
     console.error('Get orders error:', err);
@@ -408,11 +465,28 @@ app.get('/api/orders/events', (req, res) => {
   });
 });
 
-// Modify the status update endpoint to broadcast changes
-app.put('/api/orders/:tableName/status', async (req, res) => {
+// Modify the status update endpoint to handle role-based permissions
+app.put('/api/orders/:tableName/status', authenticateToken, async (req, res) => {
   try {
     const { tableName } = req.params;
     const { status } = req.body;
+    const userRole = req.user.role;
+
+    // Define valid status transitions for each role
+    const validTransitions = {
+      chef: {
+        from: ["รอการเตรียม"],
+        to: ["กำลังเตรียม", "พร้อมเสิร์ฟ"]
+      },
+      waiter: {
+        from: ["พร้อมเสิร์ฟ"],
+        to: ["เสร็จสิ้น"]
+      },
+      admin: {
+        from: ["รอการเตรียม", "กำลังเตรียม", "พร้อมเสิร์ฟ"],
+        to: ["รอการเตรียม", "กำลังเตรียม", "พร้อมเสิร์ฟ", "เสร็จสิ้น"]
+      }
+    };
 
     if (!tableName || typeof tableName !== 'string') {
       return res.status(400).json({ error: 'กรุณาระบุหมายเลขโต๊ะ' });
@@ -420,12 +494,6 @@ app.put('/api/orders/:tableName/status', async (req, res) => {
 
     if (!status || typeof status !== 'string') {
       return res.status(400).json({ error: 'กรุณาระบุสถานะ' });
-    }
-
-    // Validate status values
-    const validStatuses = ["รอการเตรียม", "กำลังเตรียม", "พร้อมเสิร์ฟ", "เสร็จสิ้น"];
-    if (!validStatuses.includes(status)) {
-      return res.status(400).json({ error: 'สถานะไม่ถูกต้อง' });
     }
 
     const order = await Order.findOne({ 
@@ -437,6 +505,12 @@ app.put('/api/orders/:tableName/status', async (req, res) => {
       return res.status(404).json({ error: 'ไม่พบคำสั่งซื้อ' });
     }
 
+    // Check if the status transition is valid for the user's role
+    const roleTransitions = validTransitions[userRole];
+    if (!roleTransitions || !roleTransitions.from.includes(order.status) || !roleTransitions.to.includes(status)) {
+      return res.status(403).json({ error: 'ไม่สามารถเปลี่ยนสถานะได้' });
+    }
+
     order.status = status;
     await order.save();
     
@@ -445,7 +519,8 @@ app.put('/api/orders/:tableName/status', async (req, res) => {
       type: 'status_update',
       tableName,
       status,
-      order
+      order,
+      updatedBy: userRole
     });
 
     res.json({ 
