@@ -149,7 +149,7 @@ app.get('/api/users', authenticateToken, isStaff, async (req, res) => {
 });
 
 // --- Menu Routes ---
-app.get('/api/menu', async (req, res) => {
+app.get('/api/menu', authenticateToken, isStaff, async (req, res) => {
   try {
     const foodItems = await Food.find();
     res.json(foodItems);
@@ -159,7 +159,7 @@ app.get('/api/menu', async (req, res) => {
   }
 });
 
-app.post('/api/food', authenticateToken, isAdmin, upload.single('image'), async (req, res) => {
+app.post('/api/food', authenticateToken, isStaff, upload.single('image'), async (req, res) => {
   try {
     const { name, category, instructions, price } = req.body;
 
@@ -199,7 +199,7 @@ app.get('/api/food/:id', async (req, res) => {
   }
 });
 
-app.put('/api/food/:id', authenticateToken, isAdmin, upload.single('image'), async (req, res) => {
+app.put('/api/food/:id', authenticateToken, isStaff, upload.single('image'), async (req, res) => {
   try {
     const foodId = req.params.id;
     const { name, category, instructions, price } = req.body;
@@ -231,7 +231,7 @@ app.put('/api/food/:id', authenticateToken, isAdmin, upload.single('image'), asy
   }
 });
 
-app.delete('/api/food/:id', authenticateToken, isAdmin, async (req, res) => {
+app.delete('/api/food/:id', authenticateToken, isStaff, async (req, res) => {
   try {
     const food = await Food.findById(req.params.id);
     if (!food) return res.status(404).json({ error: 'ไม่พบรายการอาหาร' });
