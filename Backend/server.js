@@ -254,7 +254,7 @@ app.delete('/api/food/:id', authenticateToken, isStaff, async (req, res) => {
 // --- Order Routes ---
 app.post('/api/orders', async (req, res) => {
   try {
-    const { items, tableName } = req.body;
+    const { items, tableName, status } = req.body;
 
     if (!items || !Array.isArray(items) || items.length === 0) {
       return res.status(400).json({ error: 'กรุณาระบุรายการอาหาร' });
@@ -318,7 +318,7 @@ app.post('/api/orders', async (req, res) => {
       const newOrder = new Order({ 
         tableName, 
         items, 
-        status: "รอการเตรียม",
+        status: status || "รอการเตรียม", // Use provided status or default
         time: new Date()
       });
       await newOrder.save();
