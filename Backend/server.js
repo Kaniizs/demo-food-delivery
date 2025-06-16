@@ -91,29 +91,6 @@ mongoose.connect(process.env.MONGO_URI, {
   console.log('👨‍💼 Default waiter user recreated: waiter / waiter123');
 }).catch(err => console.error('❌ MongoDB connection error:', err));
 
-app.post('/api/register', async (req, res) => {
-  try {
-    const { username, password, role = 'user' } = req.body;
-    if (!username || !password) return res.status(400).json({ error: 'กรุณากรอกชื่อผู้ใช้และรหัสผ่าน' });
-
-    const existingUser = await User.findOne({ username });
-    if (existingUser) return res.status(400).json({ error: 'ชื่อผู้ใช้นี้มีอยู่ในระบบแล้ว' });
-
-    // Only allow admin to create new users
-    if (req.user?.role !== 'admin') {
-      return res.status(403).json({ error: 'ไม่มีสิทธิ์ในการลงทะเบียนผู้ใช้' });
-    }
-
-    const hashedPassword = await bcrypt.hash(password, 10);
-    const newUser = new User({ username, password: hashedPassword, role });
-    await newUser.save();
-
-    res.status(201).json({ message: 'ลงทะเบียนสำเร็จ' });
-  } catch (err) {
-    console.error('Register error:', err);
-    res.status(500).json({ error: 'การลงทะเบียนล้มเหลว' });
-  }
-});
 
 app.post('/api/login', async (req, res) => {
   try {
@@ -150,29 +127,18 @@ function isAdmin(req, res, next) {
   next();
 }
 
-function isChef(req, res, next) {
-  if (req.user.role !== 'chef') return res.status(403).json({ error: 'เฉพาะพ่อครัวเท่านั้น' });
-  next();
-}
-
-function isWaiter(req, res, next) {
-  if (req.user.role !== 'waiter') return res.status(403).json({ error: 'เฉพาะพนักงานเสิร์ฟเท่านั้น' });
-  next();
-}
-
-// --- Protected Routes ---
-app.get('/api/admin-stats', authenticateToken, isAdmin, (req, res) => {
-  res.json({ message: 'สวัสดีผู้ดูแลระบบ นี่คือสถิติของคุณ' });
-});
-
-app.get('/api/protected', authenticateToken, (req, res) => {
-  res.json({ message: `สวัสดี ${req.user.username} นี่คือข้อมูลที่ได้รับการป้องกัน` });
-});
-
 app.get('/api/users', authenticateToken, isAdmin, async (req, res) => {
   try {
-    const users = await User.find({}, '-password');
-    res.json(users);
+    const users = await User.find({ role: { $in: ['admin', 'chef', 'waiter'] } }, '-password');
+    const usersWithRoles = users.map(user => ({
+      id: user._id,
+      username: user.username,
+      role: user.role,
+      roleDisplay: user.role === 'admin' ? 'ผู้ดูแลระบบ' : 
+                  user.role === 'chef' ? 'เชฟ' : 
+                  'พนักงานเสิร์ฟ'
+    }));
+    res.json(usersWithRoles);
   } catch (err) {
     console.error('Error fetching users:', err);
     res.status(500).json({ error: 'ไม่สามารถดึงข้อมูลผู้ใช้ได้' });
