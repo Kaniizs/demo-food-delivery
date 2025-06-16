@@ -372,7 +372,7 @@ app.put('/api/orders/:tableName/status', async (req, res) => {
 
     const order = await Order.findOne({ 
       tableName: tableName,
-      status: { $in: ["รอการเตรียม", "กำลังเตรียม", "พร้อมเสิร์ฟ"] }
+      status: { $in: ["รอการเตรียม", "กำลังเตรียม", "พร้อมเสิร์ฟ", "เสร็จสิ้น"] }
     }).sort({ time: -1 });
 
     if (!order) {
