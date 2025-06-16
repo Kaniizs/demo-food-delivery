@@ -11,7 +11,6 @@ require('dotenv').config();
 const User = require('./models/Users');
 const Food = require('./models/Food');
 const Order = require('./models/Order');
-const Menu = require('./models/Menu');
 
 const app = express();
 const PORT = process.env.PORT || 5000;
@@ -149,47 +148,14 @@ app.get('/api/users', authenticateToken, isStaff, async (req, res) => {
   }
 });
 
-// Add this endpoint to get current user info
-app.get('/api/users/me', authenticateToken, async (req, res) => {
-  try {
-    const user = await User.findOne({ username: req.user.username }, '-password');
-    if (!user) {
-      return res.status(404).json({ error: 'ไม่พบผู้ใช้' });
-    }
-    res.json({
-      id: user._id,
-      username: user.username,
-      role: user.role,
-      roleDisplay: user.role === 'admin' ? 'ผู้ดูแลระบบ' : 
-                  user.role === 'chef' ? 'เชฟ' : 
-                  'พนักงานเสิร์ฟ'
-    });
-  } catch (err) {
-    console.error('Error fetching current user:', err);
-    res.status(500).json({ error: 'ไม่สามารถดึงข้อมูลผู้ใช้ได้' });
-  }
-});
-
 // --- Menu Routes ---
 app.get('/api/menu', async (req, res) => {
   try {
-    const menu = await Menu.find().sort({ category: 1, name: 1 });
-    res.json(menu);
+    const foodItems = await Food.find();
+    res.json(foodItems);
   } catch (err) {
-    console.error('Error fetching menu:', err);
-    res.status(500).json({ error: 'ไม่สามารถดึงข้อมูลเมนูได้' });
-  }
-});
-
-app.post('/api/menu', authenticateToken, isStaff, async (req, res) => {
-  try {
-    const { name, price, category, image } = req.body;
-    const menu = new Menu({ name, price, category, image });
-    await menu.save();
-    res.status(201).json(menu);
-  } catch (err) {
-    console.error('Error creating menu item:', err);
-    res.status(500).json({ error: 'ไม่สามารถสร้างรายการเมนูได้' });
+    console.error('Error fetching food items:', err);
+    res.status(500).json({ error: 'ไม่สามารถดึงรายการอาหารได้' });
   }
 });
 
@@ -233,7 +199,7 @@ app.get('/api/food/:id', async (req, res) => {
   }
 });
 
-app.put('/api/food/:id', authenticateToken, isStaff, upload.single('image'), async (req, res) => {
+app.put('/api/food/:id', authenticateToken, isAdmin, upload.single('image'), async (req, res) => {
   try {
     const foodId = req.params.id;
     const { name, category, instructions, price } = req.body;
@@ -265,7 +231,7 @@ app.put('/api/food/:id', authenticateToken, isStaff, upload.single('image'), asy
   }
 });
 
-app.delete('/api/food/:id', authenticateToken, isStaff, async (req, res) => {
+app.delete('/api/food/:id', authenticateToken, isAdmin, async (req, res) => {
   try {
     const food = await Food.findById(req.params.id);
     if (!food) return res.status(404).json({ error: 'ไม่พบรายการอาหาร' });
@@ -286,44 +252,121 @@ app.delete('/api/food/:id', authenticateToken, isStaff, async (req, res) => {
 });
 
 // --- Order Routes ---
-app.get('/api/orders', authenticateToken, async (req, res) => {
+app.post('/api/orders', async (req, res) => {
   try {
-    let query = {};
-    
-    // Filter orders based on user role
-    if (req.user.role === 'admin') {
-      // Admin can see all orders
-      query = {};
-    } else if (req.user.role === 'chef') {
-      // Chef can only see orders that are not completed
-      query = { status: { $in: ['รอการเตรียม', 'กำลังเตรียม', 'พร้อมเสิร์ฟ'] } };
-    } else if (req.user.role === 'waiter') {
-      // Waiter can only see orders that are ready to serve
-      query = { status: 'พร้อมเสิร์ฟ' };
-    } else {
-      // Regular users can only see their own orders
-      query = { userId: req.user.id };
+    const { items, tableName } = req.body;
+
+    if (!items || !Array.isArray(items) || items.length === 0) {
+      return res.status(400).json({ error: 'กรุณาระบุรายการอาหาร' });
     }
 
-    const orders = await Order.find(query)
-      .sort({ createdAt: -1 });
+    if (!tableName || typeof tableName !== 'string') {
+      return res.status(400).json({ error: 'กรุณาระบุหมายเลขโต๊ะ' });
+    }
 
-    // Format the response to match the expected structure
-    const formattedOrders = orders.map(order => ({
-      _id: order._id,
-      tableName: order.tableName,
-      items: order.items.map(item => ({
-        id: item.id,
-        name: item.name,
-        price: item.price,
-        quantity: item.quantity
-      })),
-      status: order.status,
-      time: order.time,
-      createdAt: order.createdAt
-    }));
+    // Validate each item in the order
+    for (const item of items) {
+      if (!item.id || !item.name || !item.price || !item.quantity) {
+        return res.status(400).json({ error: 'ข้อมูลรายการอาหารไม่ครบถ้วน' });
+      }
+      if (item.quantity < 1) {
+        return res.status(400).json({ error: 'จำนวนอาหารต้องมากกว่า 0' });
+      }
+    }
 
-    res.json(formattedOrders);
+    let order;
+    // Check if there's an existing order for this table
+    let existingOrder = await Order.findOne({ 
+      tableName: tableName,
+      status: { $in: ["รอการเตรียม", "กำลังเตรียม", "พร้อมเสิร์ฟ", "เสร็จสิ้น"] }
+    });
+
+    if (existingOrder) {
+      // Combine quantities for same menu items
+      const existingItems = existingOrder.items;
+      const newItems = items;
+
+      // Create a map of existing items by their id
+      const itemMap = new Map();
+      existingItems.forEach(item => {
+        itemMap.set(item.id, item);
+      });
+
+      // Update quantities for existing items or add new items
+      newItems.forEach(newItem => {
+        if (itemMap.has(newItem.id)) {
+          // If item exists, update quantity
+          const existingItem = itemMap.get(newItem.id);
+          existingItem.quantity += newItem.quantity;
+        } else {
+          // If item is new, add it to the order
+          existingItems.push(newItem);
+        }
+      });
+
+      await existingOrder.save();
+      order = existingOrder;
+
+      // Broadcast order update
+      sendUpdateToClients({
+        type: 'order_update',
+        tableName,
+        order
+      });
+    } else {
+      // Create new order if no existing order found
+      const newOrder = new Order({ 
+        tableName, 
+        items, 
+        status: "รอการเตรียม",
+        time: new Date()
+      });
+      await newOrder.save();
+      order = newOrder;
+
+      // Broadcast new order
+      sendUpdateToClients({
+        type: 'new_order',
+        tableName,
+        order
+      });
+    }
+
+    res.json({ 
+      message: existingOrder ? 'เพิ่มรายการอาหารสำเร็จ!' : 'สั่งอาหารสำเร็จ!', 
+      order 
+    });
+  } catch (err) {
+    console.error('Create order error:', err);
+    res.status(500).json({ error: 'ไม่สามารถบันทึกคำสั่งซื้อได้' });
+  }
+});
+
+app.get('/api/orders', authenticateToken, async (req, res) => {
+  try {
+    const userRole = req.user.role;
+    let orders;
+    let statusFilter;
+
+    switch (userRole) {
+      case 'chef':
+        // Chef sees orders that need preparation
+        statusFilter = { $in: ["รอการเตรียม", "กำลังเตรียม"] };
+        break;
+      case 'waiter':
+        // Waiter sees orders ready to be served
+        statusFilter = { $in: ["พร้อมเสิร์ฟ"] };
+        break;
+      case 'admin':
+        // Admin sees all orders
+        statusFilter = {};
+        break;
+      default:
+        return res.status(403).json({ error: 'ไม่มีสิทธิ์เข้าถึง' });
+    }
+
+    orders = await Order.find(statusFilter).sort({ time: -1 });
+    res.json(orders);
   } catch (err) {
     console.error('Get orders error:', err);
     res.status(500).json({ error: 'ไม่สามารถดึงข้อมูลคำสั่งซื้อได้' });
