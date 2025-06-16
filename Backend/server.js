@@ -11,6 +11,7 @@ require('dotenv').config();
 const User = require('./models/Users');
 const Food = require('./models/Food');
 const Order = require('./models/Order');
+const Menu = require('./models/Menu');
 
 const app = express();
 const PORT = process.env.PORT || 5000;
@@ -170,13 +171,25 @@ app.get('/api/users/me', authenticateToken, async (req, res) => {
 });
 
 // --- Menu Routes ---
-app.get('/api/menu', authenticateToken, isStaff, async (req, res) => {
+app.get('/api/menu', async (req, res) => {
   try {
-    const foodItems = await Food.find();
-    res.json(foodItems);
+    const menu = await Menu.find().sort({ category: 1, name: 1 });
+    res.json(menu);
   } catch (err) {
-    console.error('Error fetching food items:', err);
-    res.status(500).json({ error: 'ไม่สามารถดึงรายการอาหารได้' });
+    console.error('Error fetching menu:', err);
+    res.status(500).json({ error: 'ไม่สามารถดึงข้อมูลเมนูได้' });
+  }
+});
+
+app.post('/api/menu', authenticateToken, isStaff, async (req, res) => {
+  try {
+    const { name, price, category, image } = req.body;
+    const menu = new Menu({ name, price, category, image });
+    await menu.save();
+    res.status(201).json(menu);
+  } catch (err) {
+    console.error('Error creating menu item:', err);
+    res.status(500).json({ error: 'ไม่สามารถสร้างรายการเมนูได้' });
   }
 });
 
@@ -293,11 +306,24 @@ app.get('/api/orders', authenticateToken, async (req, res) => {
     }
 
     const orders = await Order.find(query)
-      .populate('userId', 'username')
-      .populate('items.foodId', 'name price')
       .sort({ createdAt: -1 });
 
-    res.json(orders);
+    // Format the response to match the expected structure
+    const formattedOrders = orders.map(order => ({
+      _id: order._id,
+      tableName: order.tableName,
+      items: order.items.map(item => ({
+        id: item.id,
+        name: item.name,
+        price: item.price,
+        quantity: item.quantity
+      })),
+      status: order.status,
+      time: order.time,
+      createdAt: order.createdAt
+    }));
+
+    res.json(formattedOrders);
   } catch (err) {
     console.error('Get orders error:', err);
     res.status(500).json({ error: 'ไม่สามารถดึงข้อมูลคำสั่งซื้อได้' });
