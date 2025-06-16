@@ -475,7 +475,7 @@ app.put('/api/orders/:tableName/status', authenticateToken, async (req, res) => 
     // Define valid status transitions for each role
     const validTransitions = {
       chef: {
-        from: ["รอการเตรียม"],
+        from: ["รอการเตรียม", "กำลังเตรียม"],
         to: ["กำลังเตรียม", "พร้อมเสิร์ฟ"]
       },
       waiter: {
@@ -487,6 +487,11 @@ app.put('/api/orders/:tableName/status', authenticateToken, async (req, res) => 
         to: ["รอการเตรียม", "กำลังเตรียม", "พร้อมเสิร์ฟ", "เสร็จสิ้น"]
       }
     };
+
+    // Check if user has permission to update status
+    if (!validTransitions[userRole]) {
+      return res.status(403).json({ error: 'ไม่มีสิทธิ์ในการอัพเดทสถานะ' });
+    }
 
     if (!tableName || typeof tableName !== 'string') {
       return res.status(400).json({ error: 'กรุณาระบุหมายเลขโต๊ะ' });
@@ -507,8 +512,29 @@ app.put('/api/orders/:tableName/status', authenticateToken, async (req, res) => 
 
     // Check if the status transition is valid for the user's role
     const roleTransitions = validTransitions[userRole];
-    if (!roleTransitions || !roleTransitions.from.includes(order.status) || !roleTransitions.to.includes(status)) {
-      return res.status(403).json({ error: 'ไม่สามารถเปลี่ยนสถานะได้' });
+    
+    // Validate the status transition
+    const isValidTransition = roleTransitions.from.includes(order.status) && 
+                            roleTransitions.to.includes(status) &&
+                            (
+                              // For chef: can only move forward in the sequence
+                              (userRole === 'chef' && 
+                               ((order.status === 'รอการเตรียม' && status === 'กำลังเตรียม') ||
+                                (order.status === 'กำลังเตรียม' && status === 'พร้อมเสิร์ฟ'))) ||
+                              // For waiter: can only move from "พร้อมเสิร์ฟ" to "เสร็จสิ้น"
+                              (userRole === 'waiter' && 
+                               order.status === 'พร้อมเสิร์ฟ' && 
+                               status === 'เสร็จสิ้น') ||
+                              // Admin can do any transition
+                              userRole === 'admin'
+                            );
+
+    if (!isValidTransition) {
+      return res.status(403).json({ 
+        error: `ไม่สามารถเปลี่ยนสถานะจาก "${order.status}" เป็น "${status}" ได้`,
+        currentStatus: order.status,
+        allowedTransitions: roleTransitions
+      });
     }
 
     order.status = status;
