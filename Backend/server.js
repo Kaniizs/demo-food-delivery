@@ -269,10 +269,11 @@ app.post('/api/orders', async (req, res) => {
       }
     }
 
+    let order;
     // Check if there's an existing order for this table
     let existingOrder = await Order.findOne({ 
       tableName: tableName,
-      status: { $in: ["รอการเตรียม", "กำลังเตรียม", "พร้อมเสิร์ฟ"] }
+      status: { $in: ["รอการเตรียม", "กำลังเตรียม", "พร้อมเสิร์ฟ", "เสร็จสิ้น"] }
     });
 
     if (existingOrder) {
@@ -299,7 +300,14 @@ app.post('/api/orders', async (req, res) => {
       });
 
       await existingOrder.save();
-      res.json({ message: 'เพิ่มรายการอาหารสำเร็จ!', order: existingOrder });
+      order = existingOrder;
+
+      // Broadcast order update
+      sendUpdateToClients({
+        type: 'order_update',
+        tableName,
+        order
+      });
     } else {
       // Create new order if no existing order found
       const newOrder = new Order({ 
@@ -309,8 +317,20 @@ app.post('/api/orders', async (req, res) => {
         time: new Date()
       });
       await newOrder.save();
-      res.status(201).json({ message: 'สั่งอาหารสำเร็จ!', order: newOrder });
+      order = newOrder;
+
+      // Broadcast new order
+      sendUpdateToClients({
+        type: 'new_order',
+        tableName,
+        order
+      });
     }
+
+    res.json({ 
+      message: existingOrder ? 'เพิ่มรายการอาหารสำเร็จ!' : 'สั่งอาหารสำเร็จ!', 
+      order 
+    });
   } catch (err) {
     console.error('Create order error:', err);
     res.status(500).json({ error: 'ไม่สามารถบันทึกคำสั่งซื้อได้' });
@@ -351,6 +371,44 @@ app.get('/api/orders/:tableName', async (req, res) => {
   }
 });
 
+// Add SSE clients store
+const clients = new Set();
+
+// Function to send updates to all connected clients
+const sendUpdateToClients = (data) => {
+  clients.forEach(client => {
+    client.res.write(`data: ${JSON.stringify(data)}\n\n`);
+  });
+};
+
+// SSE endpoint for order status updates
+app.get('/api/orders/events', (req, res) => {
+  // Set headers for SSE
+  res.writeHead(200, {
+    'Content-Type': 'text/event-stream',
+    'Cache-Control': 'no-cache',
+    'Connection': 'keep-alive',
+    'Access-Control-Allow-Origin': '*'
+  });
+
+  // Send initial connection message
+  res.write(`data: ${JSON.stringify({ type: 'connected' })}\n\n`);
+
+  // Add this client to the clients set
+  const clientId = Date.now();
+  const newClient = {
+    id: clientId,
+    res
+  };
+  clients.add(newClient);
+
+  // Remove client when connection closes
+  req.on('close', () => {
+    clients.delete(newClient);
+  });
+});
+
+// Modify the status update endpoint to broadcast changes
 app.put('/api/orders/:tableName/status', async (req, res) => {
   try {
     const { tableName } = req.params;
@@ -382,6 +440,14 @@ app.put('/api/orders/:tableName/status', async (req, res) => {
     order.status = status;
     await order.save();
     
+    // Broadcast the status update to all connected clients
+    sendUpdateToClients({
+      type: 'status_update',
+      tableName,
+      status,
+      order
+    });
+
     res.json({ 
       message: 'อัพเดทสถานะคำสั่งซื้อสำเร็จ', 
       order 
