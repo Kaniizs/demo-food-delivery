@@ -122,12 +122,15 @@ function authenticateToken(req, res, next) {
   });
 }
 
-function isAdmin(req, res, next) {
-  if (req.user.role !== 'admin') return res.status(403).json({ error: 'เฉพาะผู้ดูแลระบบเท่านั้น' });
+// Add new middleware for staff roles
+function isStaff(req, res, next) {
+  if (!['admin', 'chef', 'waiter'].includes(req.user.role)) {
+    return res.status(403).json({ error: 'เฉพาะพนักงานเท่านั้น' });
+  }
   next();
 }
 
-app.get('/api/users', authenticateToken, isAdmin, async (req, res) => {
+app.get('/api/users', authenticateToken, isStaff, async (req, res) => {
   try {
     const users = await User.find({ role: { $in: ['admin', 'chef', 'waiter'] } }, '-password');
     const usersWithRoles = users.map(user => ({
