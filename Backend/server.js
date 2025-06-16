@@ -365,7 +365,7 @@ app.put('/api/orders/:tableName/status', async (req, res) => {
     }
 
     // Validate status values
-    const validStatuses = ["รอการเตรียม", "กำลังเตรียม", "พร้อมเสิร์ฟ"];
+    const validStatuses = ["รอการเตรียม", "กำลังเตรียม", "พร้อมเสิร์ฟ", "เสร็จสิ้น"];
     if (!validStatuses.includes(status)) {
       return res.status(400).json({ error: 'สถานะไม่ถูกต้อง' });
     }
