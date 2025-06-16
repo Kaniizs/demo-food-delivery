@@ -273,120 +273,30 @@ app.delete('/api/food/:id', authenticateToken, isStaff, async (req, res) => {
 });
 
 // --- Order Routes ---
-app.post('/api/orders', async (req, res) => {
-  try {
-    const { items, tableName } = req.body;
-
-    if (!items || !Array.isArray(items) || items.length === 0) {
-      return res.status(400).json({ error: 'กรุณาระบุรายการอาหาร' });
-    }
-
-    if (!tableName || typeof tableName !== 'string') {
-      return res.status(400).json({ error: 'กรุณาระบุหมายเลขโต๊ะ' });
-    }
-
-    // Validate each item in the order
-    for (const item of items) {
-      if (!item.id || !item.name || !item.price || !item.quantity) {
-        return res.status(400).json({ error: 'ข้อมูลรายการอาหารไม่ครบถ้วน' });
-      }
-      if (item.quantity < 1) {
-        return res.status(400).json({ error: 'จำนวนอาหารต้องมากกว่า 0' });
-      }
-    }
-
-    let order;
-    // Check if there's an existing order for this table
-    let existingOrder = await Order.findOne({ 
-      tableName: tableName,
-      status: { $in: ["รอการเตรียม", "กำลังเตรียม", "พร้อมเสิร์ฟ", "เสร็จสิ้น"] }
-    });
-
-    if (existingOrder) {
-      // Combine quantities for same menu items
-      const existingItems = existingOrder.items;
-      const newItems = items;
-
-      // Create a map of existing items by their id
-      const itemMap = new Map();
-      existingItems.forEach(item => {
-        itemMap.set(item.id, item);
-      });
-
-      // Update quantities for existing items or add new items
-      newItems.forEach(newItem => {
-        if (itemMap.has(newItem.id)) {
-          // If item exists, update quantity
-          const existingItem = itemMap.get(newItem.id);
-          existingItem.quantity += newItem.quantity;
-        } else {
-          // If item is new, add it to the order
-          existingItems.push(newItem);
-        }
-      });
-
-      await existingOrder.save();
-      order = existingOrder;
-
-      // Broadcast order update
-      sendUpdateToClients({
-        type: 'order_update',
-        tableName,
-        order
-      });
-    } else {
-      // Create new order if no existing order found
-      const newOrder = new Order({ 
-        tableName, 
-        items, 
-        status: "รอการเตรียม",
-        time: new Date()
-      });
-      await newOrder.save();
-      order = newOrder;
-
-      // Broadcast new order
-      sendUpdateToClients({
-        type: 'new_order',
-        tableName,
-        order
-      });
-    }
-
-    res.json({ 
-      message: existingOrder ? 'เพิ่มรายการอาหารสำเร็จ!' : 'สั่งอาหารสำเร็จ!', 
-      order 
-    });
-  } catch (err) {
-    console.error('Create order error:', err);
-    res.status(500).json({ error: 'ไม่สามารถบันทึกคำสั่งซื้อได้' });
-  }
-});
-
 app.get('/api/orders', authenticateToken, async (req, res) => {
   try {
-    const userRole = req.user.role;
-    let orders;
-    let statusFilter;
-
-    switch (userRole) {
-      case 'chef':
-        // Chef sees orders that need preparation
-        statusFilter = { $in: ["รอการเตรียม", "กำลังเตรียม"] };
-        break;
-      case 'waiter':
-        // Waiter sees orders ready to be served
-        statusFilter = { $in: ["พร้อมเสิร์ฟ"] };
-        break;
-      case 'admin':
-        // Admin sees all orders
-        statusFilter = {};
-        break;
-      default:
-        return res.status(403).json({ error: 'ไม่มีสิทธิ์เข้าถึง' });
+    let query = {};
+    
+    // Filter orders based on user role
+    if (req.user.role === 'admin') {
+      // Admin can see all orders
+      query = {};
+    } else if (req.user.role === 'chef') {
+      // Chef can only see orders that are not completed
+      query = { status: { $in: ['รอการเตรียม', 'กำลังเตรียม', 'พร้อมเสิร์ฟ'] } };
+    } else if (req.user.role === 'waiter') {
+      // Waiter can only see orders that are ready to serve
+      query = { status: 'พร้อมเสิร์ฟ' };
+    } else {
+      // Regular users can only see their own orders
+      query = { userId: req.user.id };
     }
 
-    orders = await Order.find(statusFilter).sort({ time: -1 });
+    const orders = await Order.find(query)
+      .populate('userId', 'username')
+      .populate('items.foodId', 'name price')
+      .sort({ createdAt: -1 });
+
     res.json(orders);
   } catch (err) {
     console.error('Get orders error:', err);
