@@ -137,9 +137,9 @@ app.get('/api/users', authenticateToken, isStaff, async (req, res) => {
       id: user._id,
       username: user.username,
       role: user.role,
-      roleDisplay: user.role === 'admin' ? 'ผู้ดูแลระบบ' : 
-                  user.role === 'chef' ? 'เชฟ' : 
-                  'พนักงานเสิร์ฟ'
+      roleDisplay: user.role === 'admin' ? 'ผู้ดูแลระบบ' :
+        user.role === 'chef' ? 'เชฟ' :
+          'พนักงานเสิร์ฟ'
     }));
     res.json(usersWithRoles);
   } catch (err) {
@@ -275,14 +275,14 @@ app.post('/api/orders', async (req, res) => {
     }
 
     let order;
-    // Check if there's an existing order for this table
-    let existingOrder = await Order.findOne({ 
+    // Check if there's an existing ACTIVE order for this table (not completed)
+    let existingOrder = await Order.findOne({
       tableName: tableName,
-      status: { $in: ["รอการเตรียม", "กำลังเตรียม", "พร้อมเสิร์ฟ", "เสร็จสิ้น"] }
+      status: { $in: ["รอการเตรียม", "กำลังเตรียม", "พร้อมเสิร์ฟ"] } // Only active orders, not completed ones
     });
 
     if (existingOrder) {
-      // Combine quantities for same menu items
+      // Combine quantities for same menu items in existing active order
       const existingItems = existingOrder.items;
       const newItems = items;
 
@@ -304,6 +304,9 @@ app.post('/api/orders', async (req, res) => {
         }
       });
 
+      existingOrder.status = "รอการเตรียม";
+      existingOrder.time = new Date(); // Update timestamp
+
       await existingOrder.save();
       order = existingOrder;
 
@@ -314,10 +317,10 @@ app.post('/api/orders', async (req, res) => {
         order
       });
     } else {
-      // Create new order if no existing order found
-      const newOrder = new Order({ 
-        tableName, 
-        items, 
+      // Create new order if no active order found (completed orders are ignored)
+      const newOrder = new Order({
+        tableName,
+        items,
         status: status || "รอการเตรียม", // Use provided status or default
         time: new Date()
       });
@@ -332,9 +335,9 @@ app.post('/api/orders', async (req, res) => {
       });
     }
 
-    res.json({ 
-      message: existingOrder ? 'เพิ่มรายการอาหารสำเร็จ!' : 'สั่งอาหารสำเร็จ!', 
-      order 
+    res.json({
+      message: existingOrder ? 'เพิ่มรายการอาหารสำเร็จ!' : 'สั่งอาหารสำเร็จ!',
+      order
     });
   } catch (err) {
     console.error('Create order error:', err);
@@ -395,7 +398,7 @@ app.get('/api/orders/:tableName', async (req, res) => {
       return res.status(400).json({ error: 'กรุณาระบุหมายเลขโต๊ะ' });
     }
 
-    const order = await Order.findOne({ 
+    const order = await Order.findOne({
       tableName: tableName,
       status: { $in: ["รอการเตรียม", "กำลังเตรียม", "พร้อมเสิร์ฟ"] }
     }).sort({ time: -1 });
@@ -484,7 +487,7 @@ app.put('/api/orders/:tableName/status', authenticateToken, async (req, res) => 
       return res.status(400).json({ error: 'กรุณาระบุสถานะ' });
     }
 
-    const order = await Order.findOne({ 
+    const order = await Order.findOne({
       tableName: tableName,
       status: { $in: ["รอการเตรียม", "กำลังเตรียม", "พร้อมเสิร์ฟ", "เสร็จสิ้น"] }
     }).sort({ time: -1 });
@@ -495,25 +498,25 @@ app.put('/api/orders/:tableName/status', authenticateToken, async (req, res) => 
 
     // Check if the status transition is valid for the user's role
     const roleTransitions = validTransitions[userRole];
-    
+
     // Validate the status transition
-    const isValidTransition = roleTransitions.from.includes(order.status) && 
-                            roleTransitions.to.includes(status) &&
-                            (
-                              // For chef: can only move forward in the sequence
-                              (userRole === 'chef' && 
-                               ((order.status === 'รอการเตรียม' && status === 'กำลังเตรียม') ||
-                                (order.status === 'กำลังเตรียม' && status === 'พร้อมเสิร์ฟ'))) ||
-                              // For waiter: can only move from "พร้อมเสิร์ฟ" to "เสร็จสิ้น"
-                              (userRole === 'waiter' && 
-                               order.status === 'พร้อมเสิร์ฟ' && 
-                               status === 'เสร็จสิ้น') ||
-                              // Admin can do any transition
-                              userRole === 'admin'
-                            );
+    const isValidTransition = roleTransitions.from.includes(order.status) &&
+      roleTransitions.to.includes(status) &&
+      (
+        // For chef: can only move forward in the sequence
+        (userRole === 'chef' &&
+          ((order.status === 'รอการเตรียม' && status === 'กำลังเตรียม') ||
+            (order.status === 'กำลังเตรียม' && status === 'พร้อมเสิร์ฟ'))) ||
+        // For waiter: can only move from "พร้อมเสิร์ฟ" to "เสร็จสิ้น"
+        (userRole === 'waiter' &&
+          order.status === 'พร้อมเสิร์ฟ' &&
+          status === 'เสร็จสิ้น') ||
+        // Admin can do any transition
+        userRole === 'admin'
+      );
 
     if (!isValidTransition) {
-      return res.status(403).json({ 
+      return res.status(403).json({
         error: `ไม่สามารถเปลี่ยนสถานะจาก "${order.status}" เป็น "${status}" ได้`,
         currentStatus: order.status,
         allowedTransitions: roleTransitions
@@ -522,7 +525,7 @@ app.put('/api/orders/:tableName/status', authenticateToken, async (req, res) => 
 
     order.status = status;
     await order.save();
-    
+
     // Broadcast the status update to all connected clients
     sendUpdateToClients({
       type: 'status_update',
@@ -532,9 +535,9 @@ app.put('/api/orders/:tableName/status', authenticateToken, async (req, res) => 
       updatedBy: userRole
     });
 
-    res.json({ 
-      message: 'อัพเดทสถานะคำสั่งซื้อสำเร็จ', 
-      order 
+    res.json({
+      message: 'อัพเดทสถานะคำสั่งซื้อสำเร็จ',
+      order
     });
   }
   catch (err) {
@@ -551,7 +554,7 @@ app.delete('/api/orders/:tableName', async (req, res) => {
       return res.status(400).json({ error: 'กรุณาระบุหมายเลขโต๊ะ' });
     }
 
-    const order = await Order.findOneAndDelete({ 
+    const order = await Order.findOneAndDelete({
       tableName: tableName,
       status: { $in: ["รอการเตรียม", "กำลังเตรียม", "พร้อมเสิร์ฟ"] }
     });
