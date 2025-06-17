@@ -251,10 +251,11 @@ app.delete('/api/food/:id', authenticateToken, isStaff, async (req, res) => {
   }
 });
 
-// --- Order Routes ---
 app.post('/api/orders', async (req, res) => {
   try {
     const { items, tableName, status } = req.body;
+
+    console.log('Received order data:', req.body); // Add this logging
 
     if (!items || !Array.isArray(items) || items.length === 0) {
       return res.status(400).json({ error: 'กรุณาระบุรายการอาหาร' });
@@ -278,7 +279,7 @@ app.post('/api/orders', async (req, res) => {
     // Check if there's an existing ACTIVE order for this table (not completed)
     let existingOrder = await Order.findOne({
       tableName: tableName,
-      status: { $in: ["รอการเตรียม", "กำลังเตรียม", "พร้อมเสิร์ฟ"] } // Only active orders, not completed ones
+      status: { $in: ["รอการเตรียม", "กำลังเตรียม", "พร้อมเสิร์ฟ"] }
     });
 
     if (existingOrder) {
@@ -303,40 +304,26 @@ app.post('/api/orders', async (req, res) => {
             existingItem.additionalInfo = newItem.additionalInfo;
           }
         } else {
-          // If item is new, add it to the order
+          // If item is new, add it to the order (including additionalInfo)
           existingItems.push(newItem);
         }
       });
 
       existingOrder.status = "รอการเตรียม";
-      existingOrder.time = new Date(); // Update timestamp
+      existingOrder.time = new Date();
 
       await existingOrder.save();
       order = existingOrder;
-
-      // Broadcast order update
-      sendUpdateToClients({
-        type: 'order_update',
-        tableName,
-        order
-      });
     } else {
-      // Create new order if no active order found (completed orders are ignored)
+      // Create new order if no active order found
       const newOrder = new Order({
         tableName,
-        items,
-        status: status || "รอการเตรียม", // Use provided status or default
+        items, // This should include additionalInfo from frontend
+        status: status || "รอการเตรียม",
         time: new Date()
       });
       await newOrder.save();
       order = newOrder;
-
-      // Broadcast new order
-      sendUpdateToClients({
-        type: 'new_order',
-        tableName,
-        order
-      });
     }
 
     res.json({
