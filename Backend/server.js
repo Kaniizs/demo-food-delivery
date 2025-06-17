@@ -295,9 +295,13 @@ app.post('/api/orders', async (req, res) => {
       // Update quantities for existing items or add new items
       newItems.forEach(newItem => {
         if (itemMap.has(newItem.id)) {
-          // If item exists, update quantity
+          // If item exists, update quantity AND additional info
           const existingItem = itemMap.get(newItem.id);
           existingItem.quantity += newItem.quantity;
+          // Update additional info if provided
+          if (newItem.additionalInfo !== undefined) {
+            existingItem.additionalInfo = newItem.additionalInfo;
+          }
         } else {
           // If item is new, add it to the order
           existingItems.push(newItem);
